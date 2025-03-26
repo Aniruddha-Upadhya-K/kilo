@@ -188,30 +188,28 @@ int getWindowSize(int *rows, int *cols) {
 
 /*** row operations ***/
 void editorRowAppend(char *s, size_t len) {
-  E.row = realloc(E.row, sizeof(erow) * (E.numrows + 1));
+    E.row = realloc(E.row, sizeof(erow) * (E.numrows + 1));
 
-  int at = E.numrows;
-  E.row[at].size = len;
-  E.row[at].chars = malloc(len + 1);
-  memcpy(E.row[at].chars, s, len);
-  E.row[at].chars[len] = '\0';
-  E.numrows++;
+    int at = E.numrows;
+    E.row[at].size = len;
+    E.row[at].chars = malloc(len + 1);
+    memcpy(E.row[at].chars, s, len);
+    E.row[at].chars[len] = '\0';
+    E.numrows++;
 }
 
 /*** file i/o ***/
-void editorOpen(char *filename) {
+void editorOpen(char* filename) {
   FILE *fp = fopen(filename, "r");
-  if (!fp)
-    die("fopen");
+  if (!fp) die("fopen");
 
   ssize_t linelen = 0;
   size_t linecap = 0;
   char *line = NULL;
-
-  while ((linelen = getline(&line, &linecap, fp)) != -1) {
-    if (linelen != -1) {
-      while (linelen > 0 &&
-             (line[linelen - 1] == '\n' || line[linelen - 1] == '\r')) {
+  
+  while((linelen = getline(&line, &linecap, fp)) != -1) {
+        if (linelen != -1) {
+      while (linelen > 0 && (line[linelen - 1] == '\n' || line[linelen - 1] == '\r')) {
         linelen--;
       }
       editorRowAppend(line, linelen);
@@ -267,7 +265,7 @@ void editorDrawRows(struct abuf *ab) {
       } else
         abAppend(ab, "~", 1);
     } else {
-      int currow;
+      int currow = y + E.rowoff - E.cy;
       int len = E.row[currow].size;
       if (E.screencols < len)
         len = E.screencols;
@@ -303,14 +301,16 @@ void editorRefreshScreen() {
 void editorMoveCursor(int c) {
   switch (c) {
   case ARROW_UP:
-    if (E.cy > 0)
+    if (E.cy > 0) {
       E.cy--;
+    }
     if (E.rowoff > 0)
       E.rowoff--;
     break;
   case ARROW_DOWN:
-    if (E.cy < E.screenrows - 1)
+    if (E.cy < E.screenrows - 1) {
       E.cy++;
+    }
     if (E.rowoff < E.numrows - 1)
       E.rowoff++;
     break;
@@ -325,10 +325,8 @@ void editorMoveCursor(int c) {
   case PAGE_UP:
   case PAGE_DOWN: {
     int temp = E.screenrows;
-    while (--temp)
+    while (temp--)
       editorMoveCursor(c == PAGE_UP ? ARROW_UP : ARROW_DOWN);
-    E.cy = E.screenrows / 2;
-    E.rowoff -= E.screenrows / 2;
     break;
   }
   case HOME_KEY:
@@ -365,6 +363,7 @@ void editorProcessKeyPress() {
     printf("%d\r\n", c);
   }
 }
+
 
 /*** init ***/
 void initEditor() {
