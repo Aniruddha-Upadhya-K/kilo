@@ -36,6 +36,12 @@ typedef struct erow {
   char *chars;
 } erow;
 
+struct editorSetting {
+  int scrolloff;
+};
+
+struct editorSetting S;
+
 struct editorConfig {
   int cx, cy;
   int screenrows;
@@ -188,28 +194,30 @@ int getWindowSize(int *rows, int *cols) {
 
 /*** row operations ***/
 void editorRowAppend(char *s, size_t len) {
-    E.row = realloc(E.row, sizeof(erow) * (E.numrows + 1));
+  E.row = realloc(E.row, sizeof(erow) * (E.numrows + 1));
 
-    int at = E.numrows;
-    E.row[at].size = len;
-    E.row[at].chars = malloc(len + 1);
-    memcpy(E.row[at].chars, s, len);
-    E.row[at].chars[len] = '\0';
-    E.numrows++;
+  int at = E.numrows;
+  E.row[at].size = len;
+  E.row[at].chars = malloc(len + 1);
+  memcpy(E.row[at].chars, s, len);
+  E.row[at].chars[len] = '\0';
+  E.numrows++;
 }
 
 /*** file i/o ***/
-void editorOpen(char* filename) {
+void editorOpen(char *filename) {
   FILE *fp = fopen(filename, "r");
-  if (!fp) die("fopen");
+  if (!fp)
+    die("fopen");
 
   ssize_t linelen = 0;
   size_t linecap = 0;
   char *line = NULL;
-  
-  while((linelen = getline(&line, &linecap, fp)) != -1) {
-        if (linelen != -1) {
-      while (linelen > 0 && (line[linelen - 1] == '\n' || line[linelen - 1] == '\r')) {
+
+  while ((linelen = getline(&line, &linecap, fp)) != -1) {
+    if (linelen != -1) {
+      while (linelen > 0 &&
+             (line[linelen - 1] == '\n' || line[linelen - 1] == '\r')) {
         linelen--;
       }
       editorRowAppend(line, linelen);
@@ -301,18 +309,26 @@ void editorRefreshScreen() {
 void editorMoveCursor(int c) {
   switch (c) {
   case ARROW_UP:
-    if (E.cy > 0) {
+    if (E.cy > S.scrolloff) {
       E.cy--;
     }
-    if (E.rowoff > 0)
+    if (E.rowoff > S.scrolloff) {
       E.rowoff--;
+    } else if (E.cy > 0) {
+      E.cy--;
+      E.rowoff--;
+    }
     break;
   case ARROW_DOWN:
-    if (E.cy < E.screenrows - 1) {
+    if (E.cy < E.screenrows - S.scrolloff - 1) {
       E.cy++;
     }
-    if (E.rowoff < E.numrows - 1)
+    if (E.rowoff < E.numrows - S.scrolloff - 1) {
       E.rowoff++;
+    } else if (E.cy < E.screenrows - 1) {
+      E.rowoff++;
+      E.cy++;
+    }
     break;
   case ARROW_RIGHT:
     if (E.cx < E.screencols - 1)
@@ -364,14 +380,18 @@ void editorProcessKeyPress() {
   }
 }
 
-
 /*** init ***/
 void initEditor() {
+  // Editor Configs
   E.cx = 0;
   E.cy = 0;
   E.row = NULL;
   E.numrows = 0;
   E.rowoff = 0;
+
+  // Editor Settings
+  S.scrolloff = 3;
+
   enableRawMode();
   if (getWindowSize(&E.screenrows, &E.screencols) == -1)
     die("getWindowSize");
