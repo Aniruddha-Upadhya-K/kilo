@@ -43,11 +43,11 @@ struct editorSetting {
 struct editorSetting S;
 
 struct editorConfig {
-  int cx, cy;
+  int cx, cy; // 0 indexed
   int screenrows;
   int screencols;
   erow *row;
-  int rowoff;
+  int rowoff; // Has the value of first line number in the current view area (0 indexed)
   int numrows;
   struct termios orig_termios;
 };
@@ -265,7 +265,22 @@ void welcome(struct abuf *ab) {
   abAppend(ab, welcome, welcomelen);
 }
 
+void editorScroll() {
+  if (E.cy < E.rowoff + S.scrolloff) {
+    if (E.cy > S.scrolloff)
+      E.rowoff = E.cy - S.scrolloff;
+    else E.rowoff = 0;
+  }
+  if (E.cy > E.rowoff + E.screenrows - S.scrolloff - 1) {
+    if (E.cy + S.scrolloff < E.numrows)
+      E.rowoff = E.cy - E.screenrows + S.scrolloff + 1;
+    else E.rowoff = E.numrows - E.screenrows;
+  }
+}
+
 void editorDrawRows(struct abuf *ab) {
+  editorScroll();
+
   for (int y = 0; y < E.screenrows; y++) {
     if (y >= E.numrows) {
       if (y == 2 * E.screenrows / 3 && E.numrows == 0) {
@@ -273,7 +288,7 @@ void editorDrawRows(struct abuf *ab) {
       } else
         abAppend(ab, "~", 1);
     } else {
-      int currow = y + E.rowoff - E.cy;
+      int currow = y + E.rowoff;
       int len = E.row[currow].size;
       if (E.screencols < len)
         len = E.screencols;
@@ -296,7 +311,7 @@ void editorRefreshScreen() {
 
   char cursorpos[15];
   size_t cursorpos_len =
-      snprintf(cursorpos, sizeof(cursorpos), "\x1b[%d;%dH", E.cy + 1, E.cx + 1);
+      snprintf(cursorpos, sizeof(cursorpos), "\x1b[%d;%dH", (E.cy - E.rowoff) + 1, E.cx + 1);
   abAppend(&ab, cursorpos,
            cursorpos_len); // Move cursor position back to its actual position
   abAppend(&ab, "\x1b[?25h", 6); // Unhide the cursor
@@ -309,24 +324,12 @@ void editorRefreshScreen() {
 void editorMoveCursor(int c) {
   switch (c) {
   case ARROW_UP:
-    if (E.cy > S.scrolloff) {
+    if (E.cy > 0) {
       E.cy--;
-    }
-    if (E.rowoff > S.scrolloff) {
-      E.rowoff--;
-    } else if (E.cy > 0) {
-      E.cy--;
-      E.rowoff--;
     }
     break;
   case ARROW_DOWN:
-    if (E.cy < E.screenrows - S.scrolloff - 1) {
-      E.cy++;
-    }
-    if (E.rowoff < E.numrows - S.scrolloff - 1) {
-      E.rowoff++;
-    } else if (E.cy < E.screenrows - 1) {
-      E.rowoff++;
+    if (E.cy < E.numrows - 1) {
       E.cy++;
     }
     break;
