@@ -48,7 +48,10 @@ struct editorConfig {
   int screencols;
   erow *row;
   int rowoff; // Has the value of first line number in the current view area (0 indexed)
+  int coloff; // Has the value of first column number in the current view area (0 indexed)
   int numrows;
+  int numcols;
+  int max_cx;
   struct termios orig_termios;
 };
 
@@ -202,6 +205,8 @@ void editorRowAppend(char *s, size_t len) {
   memcpy(E.row[at].chars, s, len);
   E.row[at].chars[len] = '\0';
   E.numrows++;
+
+  if (E.numcols < (int) len) E.numcols = len + 1;
 }
 
 /*** file i/o ***/
@@ -276,6 +281,12 @@ void editorScroll() {
       E.rowoff = E.cy - E.screenrows + S.scrolloff + 1;
     else E.rowoff = E.numrows - E.screenrows;
   }
+  if (E.cx < E.coloff) {
+    E.coloff = E.cx;
+  }
+  if (E.cx > E.coloff + E.screencols - 1) {
+    E.coloff = E.cx - E.screencols + 1;
+  }
 }
 
 void editorDrawRows(struct abuf *ab) {
@@ -289,10 +300,11 @@ void editorDrawRows(struct abuf *ab) {
         abAppend(ab, "~", 1);
     } else {
       int currow = y + E.rowoff;
-      int len = E.row[currow].size;
+      int len = E.row[currow].size - E.coloff;
+      if (len < 0) len = 0;
       if (E.screencols < len)
         len = E.screencols;
-      abAppend(ab, E.row[currow].chars, len);
+      abAppend(ab, &E.row[currow].chars[E.coloff], len);
     }
 
     abAppend(ab, "\x1b[K", 3); // Clear line to the right of cursor
@@ -311,7 +323,7 @@ void editorRefreshScreen() {
 
   char cursorpos[15];
   size_t cursorpos_len =
-      snprintf(cursorpos, sizeof(cursorpos), "\x1b[%d;%dH", (E.cy - E.rowoff) + 1, E.cx + 1);
+      snprintf(cursorpos, sizeof(cursorpos), "\x1b[%d;%dH", (E.cy - E.rowoff) + 1, (E.cx - E.coloff) + 1);
   abAppend(&ab, cursorpos,
            cursorpos_len); // Move cursor position back to its actual position
   abAppend(&ab, "\x1b[?25h", 6); // Unhide the cursor
@@ -326,20 +338,26 @@ void editorMoveCursor(int c) {
   case ARROW_UP:
     if (E.cy > 0) {
       E.cy--;
+      E.cx = E.max_cx;
     }
     break;
   case ARROW_DOWN:
     if (E.cy < E.numrows - 1) {
       E.cy++;
+      E.cx = E.max_cx;
     }
     break;
   case ARROW_RIGHT:
-    if (E.cx < E.screencols - 1)
-      E.cx++;
+    if (E.cx < E.numcols - 1) {
+        E.cx++;
+        E.max_cx = E.cx;
+      }
     break;
   case ARROW_LEFT:
-    if (E.cx > 0)
-      E.cx--;
+    if (E.cx > 0) {
+        E.cx--;
+        E.max_cx = E.cx;
+      }
     break;
   case PAGE_UP:
   case PAGE_DOWN: {
@@ -350,11 +368,16 @@ void editorMoveCursor(int c) {
   }
   case HOME_KEY:
     E.cx = 0;
+    E.max_cx = 0;
     break;
   case END_KEY:
-    E.cx = E.screencols - 1;
+    E.cx = E.row[E.cy].size;
+    E.max_cx = E.numcols;
     break;
   }
+
+  erow *row = &E.row[E.cy];
+  if (E.cx > (int) row->size) E.cx = row->size;
 }
 
 void editorProcessKeyPress() {
@@ -390,7 +413,10 @@ void initEditor() {
   E.cy = 0;
   E.row = NULL;
   E.numrows = 0;
+  E.numcols = 0;
   E.rowoff = 0;
+  E.coloff = 0;
+  E.max_cx = 0;
 
   // Editor Settings
   S.scrolloff = 3;
