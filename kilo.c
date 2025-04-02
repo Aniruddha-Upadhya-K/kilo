@@ -1,3 +1,6 @@
+/* TO DO */
+/* Respecting column when moving line up or down and the line cursor moved to has TABs in it */
+
 /*** includes ***/
 #define _DEFAULT_SOURCE
 #define _GNU_SOURCE
@@ -48,6 +51,7 @@ struct editorSetting S;
 
 struct editorConfig {
   int cx, cy; /* 0 indexed */
+  int rx;
   int screenrows;
   int screencols;
   erow *row;
@@ -203,6 +207,31 @@ int getWindowSize(int *rows, int *cols) {
 }
 
 /*** row operations ***/
+int editorRowCxToRx(erow *row, int cx) {
+  int rx = 0;
+  for(int i = 0; i < cx; i++) {
+    if (row->chars[i] == '\t') rx += S.tabwidth; 
+    else rx++;
+  }
+
+  return rx;
+}
+
+/* int editorRowRxToCx(erow *row, int rx) { */
+/*   int cx = 0; */
+/*   int i = 0; */
+/*   while (cx < row->size && i < rx) { */
+/*     if (row->chars[cx] == '\t') { */
+/*       if (i + S.tabwidth - 1 >= rx) break; */
+/*       i += S.tabwidth - 1; */
+/*     } */
+/*     cx++; */
+/*     i++; */
+/*   } */
+
+/*   return cx; */
+/* } */
+
 void editorUpdateRow(erow *row) {
   free(row->render);
 
@@ -217,7 +246,7 @@ void editorUpdateRow(erow *row) {
   for (size_t j = 0; j < row->size; j++) {
     if (row->chars[j] == '\t') {
       row->render[idx++] = ' ';
-      while ((idx - j) % S.tabwidth != 0) {
+      while (idx % S.tabwidth != 0) {
         row->render[idx++] = ' ';
       }
     } else {
@@ -315,6 +344,8 @@ void welcome(struct abuf *ab) {
 }
 
 void editorScroll() {
+  E.rx = editorRowCxToRx(&E.row[E.cy], E.cx);
+
   if (E.cy < E.rowoff + S.scrolloff) {
     if (E.cy > S.scrolloff)
       E.rowoff = E.cy - S.scrolloff;
@@ -327,11 +358,11 @@ void editorScroll() {
     else
       E.rowoff = E.numrows - E.screenrows;
   }
-  if (E.cx < E.coloff) {
-    E.coloff = E.cx;
+  if (E.rx < E.coloff) {
+    E.coloff = E.rx;
   }
-  if (E.cx > E.coloff + E.screencols - 1) {
-    E.coloff = E.cx - E.screencols + 1;
+  if (E.rx > E.coloff + E.screencols - 1) {
+    E.coloff = E.rx - E.screencols + 1;
   }
 }
 
@@ -370,7 +401,7 @@ void editorRefreshScreen() {
 
   char cursorpos[15];
   size_t cursorpos_len = snprintf(cursorpos, sizeof(cursorpos), "\x1b[%d;%dH",
-                                  (E.cy - E.rowoff) + 1, (E.cx - E.coloff) + 1);
+                                  (E.cy - E.rowoff) + 1, (E.rx - E.coloff) + 1);
   abAppend(
       &ab, cursorpos,
       cursorpos_len); /* Move cursor position back to its actual position */
@@ -396,7 +427,7 @@ void editorMoveCursor(int c) {
     }
     break;
   case ARROW_RIGHT:
-    if (E.cx < (int)E.row[E.cy].rsize) {
+    if (E.cx < (int)E.row[E.cy].size) {
       E.cx++;
       E.max_cx = E.cx;
     } else if (E.cy < E.numrows - 1) {
@@ -430,14 +461,15 @@ void editorMoveCursor(int c) {
     editorMoveCursor(EOL);
     break;
   case EOL:
-    E.cx = E.row[E.cy].rsize;
+    E.cx = E.row[E.cy].size;
     E.max_cx = E.numcols;
     break;
   }
 
-  erow *row = &E.row[E.cy];
-  if (E.cx > (int)row->rsize)
-    E.cx = row->rsize;
+  /* erow *row = &E.row[E.cy]; */
+  /* if (E.cx > (int)row->size) { */
+  /*   E.cx = row->size; */
+  /* } */
 }
 
 void editorProcessKeyPress() {
@@ -471,6 +503,7 @@ void initEditor() {
   /* Editor Configs */
   E.cx = 0;
   E.cy = 0;
+  E.rx = 0;
   E.row = NULL;
   E.numrows = 0;
   E.numcols = 0;
