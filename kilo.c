@@ -1,5 +1,5 @@
 /* TO DO */
-/* Respecting column when moving line up or down and the line cursor moved to has TABs in it */
+/* Navigation with arrow keys */
 
 /*** includes ***/
 #define _DEFAULT_SOURCE
@@ -61,7 +61,7 @@ struct editorConfig {
                  (0 indexed) */
   int numrows;
   int numcols;
-  int max_cx;
+  int max_rx;
   struct termios orig_termios;
 };
 
@@ -217,20 +217,20 @@ int editorRowCxToRx(erow *row, int cx) {
   return rx;
 }
 
-/* int editorRowRxToCx(erow *row, int rx) { */
-/*   int cx = 0; */
-/*   int i = 0; */
-/*   while (cx < row->size && i < rx) { */
-/*     if (row->chars[cx] == '\t') { */
-/*       if (i + S.tabwidth - 1 >= rx) break; */
-/*       i += S.tabwidth - 1; */
-/*     } */
-/*     cx++; */
-/*     i++; */
-/*   } */
+int editorRowRxToCx(erow *row, int rx) {
+  int cx = 0;
+  int i = 0;
+  while (cx < (int) row->size && i < rx) {
+    if (row->chars[cx] == '\t') {
+      if (i + S.tabwidth - (i % S.tabwidth) - 1 >= rx) break;
+      i += S.tabwidth - (i % S.tabwidth) - 1;
+    }
+    cx++;
+    i++;
+  }
 
-/*   return cx; */
-/* } */
+  return cx;
+}
 
 void editorUpdateRow(erow *row) {
   free(row->render);
@@ -415,33 +415,90 @@ void editorRefreshScreen() {
 void editorMoveCursor(int c) {
   switch (c) {
   case ARROW_UP:
-    if (E.cy > 0) {
-      E.cy--;
-      E.cx = E.max_cx;
+    if (E.cy == 0) {
+      break;
+    }
+
+    E.cy--;
+    E.cx = editorRowRxToCx(&E.row[E.cy], E.max_rx);
+    E.rx = editorRowCxToRx(&E.row[E.cy], E.cx);
+
+    if (E.cx > E.row[E.cy].size) {
+        E.cx = E.row[E.cy].size;
+        E.rx = E.row[E.cy].rsize;
     }
     break;
   case ARROW_DOWN:
-    if (E.cy < E.numrows - 1) {
-      E.cy++;
-      E.cx = E.max_cx;
+    if (E.cy == E.numrows - 1) {
+        break;
+    }
+
+    E.cy++;
+    E.cx = editorRowRxToCx(&E.row[E.cy], E.max_rx);
+    E.rx = editorRowCxToRx(&E.row[E.cy], E.cx);
+
+    if (E.cx > E.row[E.cy].size) {
+        E.cx = E.row[E.cy].size;
+        E.rx = E.row[E.cy].rsize;
     }
     break;
   case ARROW_RIGHT:
-    if (E.cx < (int)E.row[E.cy].size) {
-      E.cx++;
-      E.max_cx = E.cx;
-    } else if (E.cy < E.numrows - 1) {
-      E.cy++;
-      E.cx = 0;
+    if (E.rx == E.row[E.cy].rsize && E.cy == E.numrows - 1) break;
+    if (E.rx == E.row[E.cy].rsize) {
+        E.cy++;
+        E.cx = 0;
+        E.rx = 0;
+        E.max_rx = 0;
+    } 
+    else if (E.row[E.cy].chars[E.cx] == '\t') {
+        E.rx += S.tabwidth - (E.rx % S.tabwidth);
+        E.cx++;
+        E.max_rx = E.rx;
+    }
+    else if (E.row[E.cy].chars[E.cx] != '\t') {
+        E.cx++;
+        E.rx++;
+        E.max_rx++;
     }
     break;
   case ARROW_LEFT:
-    if (E.cx > 0) {
-      E.cx--;
-      E.max_cx = E.cx;
-    } else if (E.cy > 0) {
-      E.cy--;
-      editorMoveCursor(EOL);
+    if (E.cx == 0 && E.cy == 0) break;
+    if (E.cx == 0) {
+        E.cy--;
+        E.cx = E.row[E.cy].size;
+        E.rx = E.row[E.cy].rsize;
+        E.max_rx = E.rx;
+    } else if (E.row[E.cy].chars[E.cx - 1] == '\t') {
+        int i = 1;
+        if (E.cx - 2 && E.row[E.cy].chars[E.cx - 2] == ' ') {
+            int spaceCountCx = 0, tabCountCx = 0, spaceCountRx = 0;
+            while (i <= E.cx) {
+                if (E.row[E.cy].chars[E.cx - i] != ' ' && E.row[E.cy].chars[E.cx - i] != '\t') break;
+                if (E.row[E.cy].chars[E.cx - i] == ' ')
+                    spaceCountCx++;
+                if (E.row[E.cy].chars[E.cx - i] == '\t')
+                    tabCountCx++;
+                i++;
+            }
+            i = 1;
+            while (i < E.rx) {
+                if (E.row[E.cy].render[E.rx - i] != ' ') break;
+                spaceCountRx++;
+                i++;
+            }
+            
+            i = spaceCountRx - (tabCountCx - 1) * S.tabwidth + spaceCountCx;
+        } else {
+            while (i <= S.tabwidth) {
+                if (E.row[E.cy].render[E.rx - i] != ' ') {
+                    break;
+                }
+                i++;
+            }
+        }
+        E.rx -= i;
+        E.cx--;
+        E.max_rx = E.rx;
     }
     break;
   case PAGE_UP:
@@ -454,7 +511,7 @@ void editorMoveCursor(int c) {
   case HOME_KEY:
     E.cx = 0;
     E.cy = 0;
-    E.max_cx = 0;
+    E.max_rx = 0;
     break;
   case END_KEY:
     E.cy = E.numrows - 1;
@@ -462,7 +519,7 @@ void editorMoveCursor(int c) {
     break;
   case EOL:
     E.cx = E.row[E.cy].size;
-    E.max_cx = E.numcols;
+    E.max_rx = E.numcols;
     break;
   }
 
@@ -509,7 +566,7 @@ void initEditor() {
   E.numcols = 0;
   E.rowoff = 0;
   E.coloff = 0;
-  E.max_cx = 0;
+  E.max_rx = 0;
 
   /* Editor Settings */
   S.scrolloff = 8;
