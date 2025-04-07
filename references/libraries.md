@@ -1,4 +1,4 @@
-# Libraries included, and its purpose in this editor
+# Libraries/Methods/Types/Definitions Used in the Making of the Editor
 
 ## Contents
 
@@ -25,7 +25,8 @@
 
 ## errno.h
 
-> [!info] > `errno` is set to zero at program startup, and any function of the standard C library
+> [!info] 
+> `errno` is set to zero at program startup, and any function of the standard C library
 > can modify its value to some value different from zero, generally to signal specific
 > categories of error (no library function sets its value back to zero once changed).
 
@@ -78,9 +79,9 @@
 ## sys/ioctl.h
 
 > [!info]
-> The ioctl() system call manipulates the underlying device parameters of special files.
+> The `ioctl()` system call manipulates the underlying device parameters of special files.
 > In particular, many operating characteristics of character special files (e.g., terminals)
-> may be controlled with ioctl() operations.
+> may be controlled with `ioctl()` operations.
 
 | Methods/Types Used   | Description                       |
 | -------------------- | --------------------------------- |
