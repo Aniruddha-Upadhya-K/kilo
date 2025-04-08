@@ -282,6 +282,68 @@ void editorRowAppend(char *s, size_t len) {
         E.numcols = len + 1;
 }
 
+void editorRowInsertChar(erow *row, int cat, int rat, int c) {
+    if (cat < 0 || cat > (int) row->size) cat = row->size;
+    if (rat < 0 || rat > (int) row->rsize) rat = row->rsize;
+    
+    int clen = 1, rlen = 1;
+    if (c == '\t') {
+        rlen = S.tabwidth - (rat % S.tabwidth);
+        row->render = realloc(row->render, row->rsize + rlen + 1);
+        memmove(row->render + rat + rlen, row->render + rat, row->rsize - rat + 1);
+        int idx = 0;
+        while (idx < S.tabwidth) {
+            row->render[rat + idx] = ' ';
+        }
+    } else {
+        row->render = realloc(row->render, row->rsize + rlen + 1);
+        memmove(row->render + rat + rlen, row->render + rat, row->rsize - rat + 1);
+        row->render[rat] = c;
+    }
+
+    row->chars = realloc(row->chars, row->size + clen + 1);
+    memmove(row->chars + cat + clen, row->chars + cat, row->size - cat + 1);
+    row->chars[cat] = c;
+
+    row->rsize += rlen;
+    row->size += clen;
+
+    E.cx += clen;
+    E.rx += rlen;
+}
+
+/* When pressed Enter:
+ * new line should be inserted after current cursor line
+ * characters after cursor in current line should be copied to new line (both in chars and render array)
+ * extra space in the current line should be freed (reallocate the memory of those chars after cursor position)
+ * Book keeping: update cursor position (E.cx, E.rx, E.cy)
+ *               update row count
+ *               update current lines sizes (E.rsize, E.size)
+ *               put new lines sizes (E.rsize, E.size)
+ */
+void editorRowInsert(int curline, int cat, int rat) {
+    E.row = realloc(E.row, sizeof(erow) * E.numrows + 1);
+    if (curline < E.numcols - 1)
+        memmove(E.row + curline + 2, E.row + curline + 1, E.numrows - curline);
+    if (cat < (int) E.row[curline].size - 1) {
+        memcpy(E.row[curline + 1].chars, &E.row[curline].chars[cat+1], E.row[curline].size - cat + 1);
+        memcpy(E.row[curline + 1].render, &E.row[curline].render[rat+1], E.row[curline].rsize - cat + 1);
+
+        E.row[curline].chars = realloc(E.row[curline].chars, cat + 1);
+        E.row[curline].render = realloc(E.row[curline].render, rat + 1);
+    } else {
+        E.row[curline].chars = 0;
+        E.row[curline].render = 0;
+    }
+    E.numrows++;
+    E.cy++;
+    E.cx = E.rx = 0;
+    E.row[curline + 1].rsize = E.row[curline].rsize - rat;
+    E.row[curline + 1].size = E.row[curline].size - cat;
+    E.row[curline].size = cat;
+    E.row[curline].rsize = rat;
+}
+
 /*** file i/o ***/
 void editorOpenEmpty() {
     int linelen = 0;
@@ -382,7 +444,7 @@ void editorDrawRows(struct abuf *ab) {
         if (y >= E.numrows) {
             if (y == 2 * E.screenrows / 3 && E.numrows == 1 && E.numcols < 1) {
                 welcome(ab);
-            } else
+            } else 
             abAppend(ab, "~", 1);
         } else {
             int currow = y + E.rowoff;
@@ -679,4 +741,3 @@ int main(int argc, char *argv[]) {
 
     return 0;
 }
-
