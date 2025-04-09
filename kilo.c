@@ -21,6 +21,7 @@
 #define KILO_VERSION "0.0.1"
 
 enum editorKey {
+    BACKSPACE = 127,
     ARROW_UP = 1000,
     ARROW_DOWN,
     ARROW_LEFT,
@@ -71,22 +72,35 @@ struct editorConfig {
 struct editorConfig E;
 
 /*** terminal ***/
-void die(char *s) {
+void die(char *s, ...) {
+    va_list ap;
+    char err[100];
+    va_start(ap, s);
+        vsnprintf(err, sizeof(err), s, ap);
+    va_end(ap);
+
     write(STDOUT_FILENO, "\x1b[2J", 4);
     write(STDOUT_FILENO, "\x1b[H", 3);
 
-    perror(s);
+    perror(err);
     exit(1);
 }
 
 void disableRawMode() {
+    for (int i = 0; i < E.numrows; i++) {
+        erow *row = E.row + i;
+        free(row->chars);
+        free(row->render);
+        free(row);
+    }
+
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &E.orig_termios) == -1)
-        die("tcsetattr");
+        die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
 }
 
 void enableRawMode() {
     if (tcgetattr(STDIN_FILENO, &E.orig_termios) == -1)
-        die("tcgetattr");
+        die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
     atexit(disableRawMode);
 
     struct termios raw = E.orig_termios;
@@ -98,7 +112,7 @@ void enableRawMode() {
     raw.c_cc[VMIN] = 0;
 
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1)
-        die("tcsetattr");
+        die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
 }
 
 int editorReadKey() {
@@ -106,7 +120,7 @@ int editorReadKey() {
     int nread;
     while ((nread = read(STDIN_FILENO, &c, 1)) != 1) {
         if (nread == -1 && nread != EAGAIN)
-            die("read");
+            die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
     }
 
     if (c == '\x1b') {
@@ -285,7 +299,7 @@ void editorRowAppend(char *s, size_t len) {
 void editorRowInsertChar(erow *row, int cat, int rat, int c) {
     if (cat < 0 || cat > (int) row->size) cat = row->size;
     if (rat < 0 || rat > (int) row->rsize) rat = row->rsize;
-    
+
     int clen = 1, rlen = 1;
     if (c == '\t') {
         rlen = S.tabwidth - (rat % S.tabwidth);
@@ -312,36 +326,50 @@ void editorRowInsertChar(erow *row, int cat, int rat, int c) {
     E.rx += rlen;
 }
 
-/* When pressed Enter:
- * new line should be inserted after current cursor line
- * characters after cursor in current line should be copied to new line (both in chars and render array)
- * extra space in the current line should be freed (reallocate the memory of those chars after cursor position)
- * Book keeping: update cursor position (E.cx, E.rx, E.cy)
- *               update row count
- *               update current lines sizes (E.rsize, E.size)
- *               put new lines sizes (E.rsize, E.size)
- */
 void editorRowInsert(int curline, int cat, int rat) {
-    E.row = realloc(E.row, sizeof(erow) * E.numrows + 1);
-    if (curline < E.numcols - 1)
-        memmove(E.row + curline + 2, E.row + curline + 1, E.numrows - curline);
-    if (cat < (int) E.row[curline].size - 1) {
-        memcpy(E.row[curline + 1].chars, &E.row[curline].chars[cat+1], E.row[curline].size - cat + 1);
-        memcpy(E.row[curline + 1].render, &E.row[curline].render[rat+1], E.row[curline].rsize - cat + 1);
+    if (curline < 0 || curline >= E.numrows) curline = E.numrows - 1;
 
-        E.row[curline].chars = realloc(E.row[curline].chars, cat + 1);
-        E.row[curline].render = realloc(E.row[curline].render, rat + 1);
-    } else {
-        E.row[curline].chars = 0;
-        E.row[curline].render = 0;
-    }
+    E.row = realloc(E.row, sizeof(erow) * (E.numrows + 1));
+    if (!E.row) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
+
+    erow *currow = E.row + curline;
+    erow *nextrow = E.row + curline + 1;
+
+    if (cat < 0 || cat > (int) currow->size) cat = currow->size;
+    if (rat < 0 || rat > (int) currow->rsize) rat = currow->rsize;
+
+    int size = currow->size - cat;
+    int rsize = currow->rsize - rat;
+
+    if (curline < E.numrows - 1) 
+        memmove(nextrow + 1, nextrow, sizeof(erow) * (E.numrows - curline - 1));
+
+    nextrow->chars = (char *) malloc(size + 1);
+    if (!nextrow->render) die("In function: %s\r\nAt line: %d\r\nmalloc", __func__, __LINE__);
+    nextrow->render = (char *) malloc(rsize + 1);
+    if (!nextrow->render) die("In function: %s\r\nAt line: %d\r\nmalloc", __func__, __LINE__);
+
+    memcpy(nextrow->chars, &currow->chars[cat], currow->size + 1 - cat);
+    memcpy(nextrow->render, &currow->render[rat], currow->rsize + 1 - rat);
+
+    currow->chars[cat] = '\0';
+    currow->render[rat] = '\0';
+
+    currow->chars = realloc(currow->chars, cat + 1);
+    if (!currow->chars) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
+    currow->render = realloc(currow->render, rat + 1);
+    if (!currow->render) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
+
     E.numrows++;
     E.cy++;
-    E.cx = E.rx = 0;
-    E.row[curline + 1].rsize = E.row[curline].rsize - rat;
-    E.row[curline + 1].size = E.row[curline].size - cat;
-    E.row[curline].size = cat;
-    E.row[curline].rsize = rat;
+    E.max_rx = 0;
+    E.cx = 0;
+    E.rx = 0;
+
+    currow->size = cat;
+    currow->rsize = rat;
+    nextrow->size = size;
+    nextrow->rsize = rsize;
 }
 
 /*** file i/o ***/
@@ -355,11 +383,11 @@ void editorOpen(char *filename) {
     free(E.filename);
     E.filename = strdup(filename);
     if (!E.filename)
-        die("strdup");
+        die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
 
     FILE *fp = fopen(filename, "r");
     if (!fp)
-        die("fopen");
+        die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
 
     ssize_t linelen = 0;
     size_t linecap = 0;
@@ -444,7 +472,7 @@ void editorDrawRows(struct abuf *ab) {
         if (y >= E.numrows) {
             if (y == 2 * E.screenrows / 3 && E.numrows == 1 && E.numcols < 1) {
                 welcome(ab);
-            } else 
+            } else
             abAppend(ab, "~", 1);
         } else {
             int currow = y + E.rowoff;
@@ -690,10 +718,13 @@ void editorProcessKeyPress() {
         case END_KEY:
             editorMoveCursor(c);
             break;
+        case '\r':
+            editorRowInsert(E.cy, E.cx, E.rx);
+            break;
         case DELETE_KEY:
 
         default:
-            printf("%d\r\n", c);
+            editorRowInsertChar(&E.row[E.cy], E.cx, E.rx, c);
     }
 }
 
@@ -720,7 +751,7 @@ void initEditor() {
 
     enableRawMode();
     if (getWindowSize(&E.screenrows, &E.screencols) == -1)
-        die("getWindowSize");
+        die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
     E.screenrows -= 2;
 }
 
@@ -741,3 +772,4 @@ int main(int argc, char *argv[]) {
 
     return 0;
 }
+
