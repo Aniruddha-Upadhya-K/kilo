@@ -345,7 +345,7 @@ void editorRowInsert(int curline, int cat, int rat) {
         memmove(nextrow + 1, nextrow, sizeof(erow) * (E.numrows - curline - 1));
 
     nextrow->chars = (char *) malloc(size + 1);
-    if (!nextrow->render) die("In function: %s\r\nAt line: %d\r\nmalloc", __func__, __LINE__);
+    if (!nextrow->chars) die("In function: %s\r\nAt line: %d\r\nmalloc", __func__, __LINE__);
     nextrow->render = (char *) malloc(rsize + 1);
     if (!nextrow->render) die("In function: %s\r\nAt line: %d\r\nmalloc", __func__, __LINE__);
 
@@ -445,13 +445,13 @@ void welcome(struct abuf *ab) {
 }
 
 void editorScroll() {
-    if (E.cy < E.rowoff + S.scrolloff) {
+    if (E.numrows < E.screenrows);
+    else if (E.cy < E.rowoff + S.scrolloff) {
         if (E.cy > S.scrolloff)
             E.rowoff = E.cy - S.scrolloff;
         else
             E.rowoff = 0;
-    }
-    if (E.cy > E.rowoff + E.screenrows - S.scrolloff - 1) {
+    } else if (E.cy > E.rowoff + E.screenrows - S.scrolloff - 1) {
         if (E.cy + S.scrolloff < E.numrows)
             E.rowoff = E.cy - E.screenrows + S.scrolloff + 1;
         else
