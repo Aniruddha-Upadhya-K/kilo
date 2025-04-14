@@ -76,7 +76,7 @@ void die(char *s, ...) {
     va_list ap;
     char err[100];
     va_start(ap, s);
-        vsnprintf(err, sizeof(err), s, ap);
+    vsnprintf(err, sizeof(err), s, ap);
     va_end(ap);
 
     write(STDOUT_FILENO, "\x1b[2J", 4);
@@ -87,12 +87,12 @@ void die(char *s, ...) {
 }
 
 void disableRawMode() {
-    for (int i = 0; i < E.numrows; i++) {
-        erow *row = E.row + i;
-        free(row->chars);
-        free(row->render);
-        free(row);
+    for (int i=0; i < E.numrows; i++) {
+        free(E.row[i].chars);
+        free(E.row[i].render);
     }
+    free(E.row);
+    free(E.filename);
 
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &E.orig_termios) == -1)
         die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
@@ -306,8 +306,9 @@ void editorRowInsertChar(erow *row, int cat, int rat, int c) {
         row->render = realloc(row->render, row->rsize + rlen + 1);
         memmove(row->render + rat + rlen, row->render + rat, row->rsize - rat + 1);
         int idx = 0;
-        while (idx < S.tabwidth) {
+        while (idx < rlen) {
             row->render[rat + idx] = ' ';
+            idx++;
         }
     } else {
         row->render = realloc(row->render, row->rsize + rlen + 1);
@@ -341,7 +342,7 @@ void editorRowInsert(int curline, int cat, int rat) {
     int size = currow->size - cat;
     int rsize = currow->rsize - rat;
 
-    if (curline < E.numrows - 1) 
+    if (curline < E.numrows - 1)
         memmove(nextrow + 1, nextrow, sizeof(erow) * (E.numrows - curline - 1));
 
     nextrow->chars = (char *) malloc(size + 1);
@@ -385,7 +386,7 @@ void editorOpen(char *filename) {
     if (!E.filename)
         die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
 
-    FILE *fp = fopen(filename, "r");
+    FILE *fp = fopen(E.filename, "r");
     if (!fp)
         die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
 
@@ -567,6 +568,50 @@ void editorRefreshScreen() {
 }
 
 /*** input ***/
+void getPreviousChar(int *dcx, int *drx, int *dcy, int *dmax_rx) {
+    erow *curRow = &E.row[E.cy];
+    char *chars = curRow->chars;
+    char *render = curRow->render;
+
+    if (E.cx == 0 && E.cy == 0);
+    else if (E.cx == 0) {
+        *dcy -= 1;
+
+        erow *prevRow = &E.row[E.cy + *dcy];
+
+        *dcx = prevRow->size - E.cx;
+        *drx = prevRow->rsize - E.rx;
+        *dmax_rx = prevRow->rsize - E.max_rx;
+    } else if (chars[E.cx - 1] == '\t') {
+        int spaceCount = 0; /* Number of spaces behind '\t' */
+        int cx = 2;
+        while (cx <= E.cx && chars[E.cx - cx] == ' ') {
+            cx++;
+            spaceCount++;
+        }
+        if (spaceCount == E.cx - 1 || chars[E.cx - cx] == '\t') {
+            /* Either all previous chars to '\t' are ' 's till first char of line
+                         * or after all the continuous spaces behind '\t' there is another '\t'
+                         */
+            int extraSpaces = spaceCount % S.tabwidth;
+            *drx = S.tabwidth - extraSpaces;
+        } else {
+            int rx = cx;
+            while (render[E.rx - rx] != chars[E.cx - cx]) {
+                rx++;
+            }
+            *drx = rx - cx + 1;
+        }
+        *drx *= -1;
+        *dcx -= 1;
+        *dmax_rx = (E.rx + *drx) - E.max_rx;
+    } else {
+        *dcx -= 1;
+        *drx -= 1;
+        *dmax_rx = (E.rx + *drx) - E.max_rx;
+    }
+}
+
 void editorMoveCursor(int c) {
     switch (c) {
         case ARROW_UP: {
@@ -622,47 +667,15 @@ void editorMoveCursor(int c) {
             break;
         }
         case ARROW_LEFT: {
-            erow *curRow = &E.row[E.cy];
-            char *chars = curRow->chars;
-            char *render = curRow->render;
-
-            if (E.cx == 0 && E.cy == 0)
-                break;
-            if (E.cx == 0) {
-                E.cy--;
-
-                erow *prevRow = &E.row[E.cy];
-
-                E.cx = prevRow->size;
-                E.rx = prevRow->rsize;
-                E.max_rx = E.rx;
-            } else if (chars[E.cx - 1] == '\t') {
-                int spaceCount = 0; /* Number of spaces behind '\t' */
-                int deltaRx = 0;
-                int cx = 2;
-                while (cx <= E.cx && chars[E.cx - cx] == ' ') {
-                    cx++;
-                    spaceCount++;
-                }
-                if (spaceCount == E.cx - 2 || chars[E.cx - cx] == '\t') {
-                    int extraSpaces = spaceCount % S.tabwidth;
-                    deltaRx = S.tabwidth - extraSpaces;
-                } else {
-                    int rx = cx;
-                    while (render[E.rx - rx] != chars[E.cx - cx]) {
-                        rx++;
-                    }
-                    deltaRx = rx - cx + 1;
-                }
-                E.rx -= deltaRx;
-                E.cx--;
-                E.max_rx = E.rx;
-
-            } else {
-                E.cx--;
-                E.rx--;
-                E.max_rx = E.rx;
-            }
+            int drx = 0;
+            int dcx = 0;
+            int dcy = 0;
+            int dmax_rx = 0;
+            getPreviousChar(&dcx, &drx, &dcy, &dmax_rx);
+            E.cx += dcx;
+            E.rx += drx;
+            E.cy += dcy;
+            E.max_rx += dmax_rx;
             break;
         }
         case PAGE_UP:
@@ -722,6 +735,15 @@ void editorProcessKeyPress() {
             editorRowInsert(E.cy, E.cx, E.rx);
             break;
         case DELETE_KEY:
+        case BACKSPACE: {
+            int drx = 0;
+            int dcx = 0;
+            int dcy = 0;
+            int dmax_rx = 0;
+            getPreviousChar(&dcx, &drx, &dcy, &dmax_rx);
+            // TODO: Remove one char from row.chars and dcx number of chars from row.render
+            break;
+        }
 
         default:
             editorRowInsertChar(&E.row[E.cy], E.cx, E.rx, c);
