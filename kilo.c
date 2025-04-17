@@ -38,8 +38,8 @@ enum editorKey {
 typedef struct erow {
     size_t size;
     char *chars;
-    char *render;
     size_t rsize;
+    char *render;
 } erow;
 
 struct editorSetting {
@@ -95,12 +95,12 @@ void disableRawMode() {
     free(E.filename);
 
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &E.orig_termios) == -1)
-        die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
+        die("In function: %s\r\nAt line: %d\r\ntcsetattr", __func__, __LINE__);
 }
 
 void enableRawMode() {
     if (tcgetattr(STDIN_FILENO, &E.orig_termios) == -1)
-        die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
+        die("In function: %s\r\nAt line: %d\r\ntcsetattr", __func__, __LINE__);
     atexit(disableRawMode);
 
     struct termios raw = E.orig_termios;
@@ -112,7 +112,7 @@ void enableRawMode() {
     raw.c_cc[VMIN] = 0;
 
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1)
-        die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
+        die("In function: %s\r\nAt line: %d\r\ntcsetattr", __func__, __LINE__);
 }
 
 int editorReadKey() {
@@ -120,7 +120,7 @@ int editorReadKey() {
     int nread;
     while ((nread = read(STDIN_FILENO, &c, 1)) != 1) {
         if (nread == -1 && nread != EAGAIN)
-            die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
+            die("In function: %s\r\nAt line: %d", __func__, __LINE__);
     }
 
     if (c == '\x1b') {
@@ -279,7 +279,8 @@ void editorUpdateRow(erow *row) {
 }
 
 void editorRowAppend(char *s, size_t len) {
-    E.row = realloc(E.row, sizeof(erow) * (E.numrows + 1));
+    E.row = (erow *) realloc(E.row, sizeof(erow) * (E.numrows + 1));
+    if (!E.row) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
 
     int at = E.numrows;
     E.row[at].size = len;
@@ -301,27 +302,17 @@ void editorRowInsertChar(erow *row, int cat, int rat, int c) {
     if (rat < 0 || rat > (int) row->rsize) rat = row->rsize;
 
     int clen = 1, rlen = 1;
-    if (c == '\t') {
+    if (c == '\t') 
         rlen = S.tabwidth - (rat % S.tabwidth);
-        row->render = realloc(row->render, row->rsize + rlen + 1);
-        memmove(row->render + rat + rlen, row->render + rat, row->rsize - rat + 1);
-        int idx = 0;
-        while (idx < rlen) {
-            row->render[rat + idx] = ' ';
-            idx++;
-        }
-    } else {
-        row->render = realloc(row->render, row->rsize + rlen + 1);
-        memmove(row->render + rat + rlen, row->render + rat, row->rsize - rat + 1);
-        row->render[rat] = c;
-    }
 
-    row->chars = realloc(row->chars, row->size + clen + 1);
+    row->chars = (char *) realloc(row->chars, row->size + clen + 1);
+    if (!E.row) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
     memmove(row->chars + cat + clen, row->chars + cat, row->size - cat + 1);
     row->chars[cat] = c;
 
-    row->rsize += rlen;
     row->size += clen;
+
+    editorUpdateRow(row);
 
     E.cx += clen;
     E.rx += rlen;
@@ -330,7 +321,7 @@ void editorRowInsertChar(erow *row, int cat, int rat, int c) {
 void editorRowInsert(int curline, int cat, int rat) {
     if (curline < 0 || curline >= E.numrows) curline = E.numrows - 1;
 
-    E.row = realloc(E.row, sizeof(erow) * (E.numrows + 1));
+    E.row = (erow *) realloc(E.row, sizeof(erow) * (E.numrows + 1));
     if (!E.row) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
 
     erow *currow = E.row + curline;
@@ -340,26 +331,19 @@ void editorRowInsert(int curline, int cat, int rat) {
     if (rat < 0 || rat > (int) currow->rsize) rat = currow->rsize;
 
     int size = currow->size - cat;
-    int rsize = currow->rsize - rat;
 
     if (curline < E.numrows - 1)
         memmove(nextrow + 1, nextrow, sizeof(erow) * (E.numrows - curline - 1));
 
     nextrow->chars = (char *) malloc(size + 1);
     if (!nextrow->chars) die("In function: %s\r\nAt line: %d\r\nmalloc", __func__, __LINE__);
-    nextrow->render = (char *) malloc(rsize + 1);
-    if (!nextrow->render) die("In function: %s\r\nAt line: %d\r\nmalloc", __func__, __LINE__);
+    nextrow->render = (char *) malloc(1);
 
     memcpy(nextrow->chars, &currow->chars[cat], currow->size + 1 - cat);
-    memcpy(nextrow->render, &currow->render[rat], currow->rsize + 1 - rat);
-
     currow->chars[cat] = '\0';
-    currow->render[rat] = '\0';
 
-    currow->chars = realloc(currow->chars, cat + 1);
+    currow->chars = (char *) realloc(currow->chars, cat + 1);
     if (!currow->chars) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
-    currow->render = realloc(currow->render, rat + 1);
-    if (!currow->render) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
 
     E.numrows++;
     E.cy++;
@@ -370,7 +354,81 @@ void editorRowInsert(int curline, int cat, int rat) {
     currow->size = cat;
     currow->rsize = rat;
     nextrow->size = size;
-    nextrow->rsize = rsize;
+    editorUpdateRow(nextrow);
+}
+
+/*
+* from one character before the position 'cat' in current row to a total of 'clen' characters will be removed from 'chars' array(s)
+* from one character before the position 'rat' in current row to a total of 'rlen' characters will be removed from 'render' array(s)
+*/
+void editorRemoveChars(int cat, int rat, int curline, int clen, int rlen) {
+    if (curline > E.numrows - 1 && curline < 0) curline = E.numrows - 1;
+    erow *currow = &E.row[curline];
+    if (cat > (int) currow->size && cat < 0) cat = currow->size;
+    if (rat > (int) currow->rsize && rat < 0) rat = currow->rsize;
+
+
+    if (clen > cat && rlen > rat && curline == 0);
+    else if (clen > cat && rlen > rat) {
+        clen -= cat + 1;
+        rlen -= rat + 1;
+
+        erow *prevrow = &E.row[curline - 1];
+
+        int prevRowSize = prevrow->size;
+        int prevRowRsize = prevrow->rsize;
+        int curRowSize = currow->size;
+        int curRowRsize = currow->rsize;
+
+        prevrow->chars = (char *) realloc(prevrow->chars, prevRowSize + curRowSize + 1);
+        if (!prevrow->chars) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
+        prevrow->render = (char *) realloc(prevrow->render, prevRowRsize + curRowRsize + 1);
+        if (!prevrow->render) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
+
+        memmove(&prevrow->chars[prevRowSize], currow->chars, curRowSize + 1);
+        memmove(&prevrow->render[prevRowRsize], currow->render, curRowRsize + 1);
+
+        prevrow->size += curRowSize;
+        prevrow->rsize += curRowRsize;
+        editorUpdateRow(prevrow);
+
+        if (curline + 1 < E.numrows) {
+            memmove(E.row + curline, E.row + curline + 1, sizeof(erow) * (E.numrows - curline - 2));
+
+            erow *lastrow = &E.row[E.numrows - 1];
+            char *chars = strdup(lastrow->chars);
+            char *render = strdup(lastrow->render);
+
+            E.row[E.numrows - 2] = (erow) {lastrow->size, chars, lastrow->rsize, render};
+        }
+        E.numrows--;
+        free(E.row[E.numrows].chars);
+        free(E.row[E.numrows].render);
+        E.row = (erow *) realloc(E.row, E.numrows * sizeof(erow));
+        if (!E.row) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
+
+        E.cy--;
+        E.cx = prevRowSize;
+        E.rx = prevRowRsize;
+        E.max_rx = E.rx;
+
+        if (clen > 0 && rlen > 0) editorRemoveChars(E.cx, E.rx, E.cy, clen, rlen);
+    } else {
+        memmove(currow->chars + cat - clen, currow->chars + cat, currow->size - cat + 1);
+        memmove(currow->render + rat - rlen, currow->render + rat, currow->rsize - rat + 1);
+
+        currow->size -= clen;
+        currow->rsize -= rlen;
+
+        currow->chars = (char *) realloc(currow->chars, currow->size + 1);
+        if (!E.row) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
+
+        editorUpdateRow(currow);
+
+        E.cx -= clen;
+        E.rx -= rlen;
+        E.max_rx = E.rx;
+    }
 }
 
 /*** file i/o ***/
@@ -384,11 +442,11 @@ void editorOpen(char *filename) {
     free(E.filename);
     E.filename = strdup(filename);
     if (!E.filename)
-        die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
+        die("In function: %s\r\nAt line: %d\r\nNo file name given", __func__, __LINE__);
 
     FILE *fp = fopen(E.filename, "r");
     if (!fp)
-        die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
+        die("In function: %s\r\nAt line: %d\r\nNo file exists with the name %s", __func__, __LINE__, E.filename);
 
     ssize_t linelen = 0;
     size_t linecap = 0;
@@ -416,7 +474,8 @@ struct abuf {
 #define ABUF_INIT {NULL, 0}
 
 void abAppend(struct abuf *ab, char *s, size_t len) {
-    char *new = realloc(ab->b, ab->len + len);
+    char *new = (char *) realloc(ab->b, ab->len + len);
+    if (!E.row) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
 
     if (!new)
         return;
@@ -575,13 +634,13 @@ void getPreviousChar(int *dcx, int *drx, int *dcy, int *dmax_rx) {
 
     if (E.cx == 0 && E.cy == 0);
     else if (E.cx == 0) {
-        *dcy -= 1;
+        *dcy += 1;
 
-        erow *prevRow = &E.row[E.cy + *dcy];
+        erow *prevRow = &E.row[E.cy - *dcy];
 
-        *dcx = prevRow->size - E.cx;
-        *drx = prevRow->rsize - E.rx;
-        *dmax_rx = prevRow->rsize - E.max_rx;
+        *dcx = -prevRow->size;
+        *drx = -prevRow->rsize;
+        *dmax_rx = -prevRow->rsize + E.max_rx;
     } else if (chars[E.cx - 1] == '\t') {
         int spaceCount = 0; /* Number of spaces behind '\t' */
         int cx = 2;
@@ -602,13 +661,12 @@ void getPreviousChar(int *dcx, int *drx, int *dcy, int *dmax_rx) {
             }
             *drx = rx - cx + 1;
         }
-        *drx *= -1;
-        *dcx -= 1;
-        *dmax_rx = (E.rx + *drx) - E.max_rx;
+        *dcx += 1;
+        *dmax_rx = -(E.rx - *drx) + E.max_rx;
     } else {
-        *dcx -= 1;
-        *drx -= 1;
-        *dmax_rx = (E.rx + *drx) - E.max_rx;
+        *dcx += 1;
+        *drx += 1;
+        *dmax_rx = -(E.rx - *drx) + E.max_rx;
     }
 }
 
@@ -672,10 +730,10 @@ void editorMoveCursor(int c) {
             int dcy = 0;
             int dmax_rx = 0;
             getPreviousChar(&dcx, &drx, &dcy, &dmax_rx);
-            E.cx += dcx;
-            E.rx += drx;
-            E.cy += dcy;
-            E.max_rx += dmax_rx;
+            E.cx -= dcx;
+            E.rx -= drx;
+            E.cy -= dcy;
+            E.max_rx -= dmax_rx;
             break;
         }
         case PAGE_UP:
@@ -736,12 +794,17 @@ void editorProcessKeyPress() {
             break;
         case DELETE_KEY:
         case BACKSPACE: {
-            int drx = 0;
-            int dcx = 0;
-            int dcy = 0;
-            int dmax_rx = 0;
-            getPreviousChar(&dcx, &drx, &dcy, &dmax_rx);
-            // TODO: Remove one char from row.chars and dcx number of chars from row.render
+            if (E.cx > 0 && E.row[E.cy].chars[E.cx - 1] == '\t') {
+                int drx = 0;
+                int dcx = 0;
+                int dcy = 0;
+                int dmax_rx = 0;
+                getPreviousChar(&dcx, &drx, &dcy, &dmax_rx);
+                if (dcy) editorRemoveChars(E.cx, E.rx, E.cy, 1, 1);
+                else editorRemoveChars(E.cx, E.rx, E.cy, 1, drx);
+            } else {
+                editorRemoveChars(E.cx, E.rx, E.cy, 1, 1);
+            }
             break;
         }
 
@@ -773,7 +836,7 @@ void initEditor() {
 
     enableRawMode();
     if (getWindowSize(&E.screenrows, &E.screencols) == -1)
-        die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
+        die("In function: %s\r\nAt line: %d", __func__, __LINE__);
     E.screenrows -= 2;
 }
 
@@ -794,4 +857,3 @@ int main(int argc, char *argv[]) {
 
     return 0;
 }
-
