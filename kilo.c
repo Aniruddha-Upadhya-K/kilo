@@ -316,6 +316,7 @@ void editorRowInsertChar(erow *row, int cat, int rat, int c) {
 
     E.cx += clen;
     E.rx += rlen;
+    if (E.rx > E.max_rx) E.max_rx = E.rx;
 }
 
 void editorRowInsert(int curline, int cat, int rat) {
@@ -361,38 +362,39 @@ void editorRowInsert(int curline, int cat, int rat) {
 * from one character before the position 'cat' in current row to a total of 'clen' characters will be removed from 'chars' array(s)
 * from one character before the position 'rat' in current row to a total of 'rlen' characters will be removed from 'render' array(s)
 */
-void editorRemoveChars(int cat, int rat, int curline, int clen, int rlen) {
+void editorRemoveChars(int cat, int rat, int curline, int clen) {
     if (curline > E.numrows - 1 && curline < 0) curline = E.numrows - 1;
     erow *currow = &E.row[curline];
     if (cat > (int) currow->size && cat < 0) cat = currow->size;
     if (rat > (int) currow->rsize && rat < 0) rat = currow->rsize;
 
+    if (clen > cat && curline == 0) {
+        clen = cat;
+    } else if (clen < 0 && cat + abs(clen) > (int) currow->size && curline == E.numrows - 1) {
+        clen = -(currow->size - cat);
+    }
 
-    if (clen > cat && rlen > rat && curline == 0);
-    else if (clen > cat && rlen > rat) {
+
+    if (clen > cat) {
         clen -= cat + 1;
-        rlen -= rat + 1;
 
         erow *prevrow = &E.row[curline - 1];
 
         int prevRowSize = prevrow->size;
         int prevRowRsize = prevrow->rsize;
         int curRowSize = currow->size;
-        int curRowRsize = currow->rsize;
 
         prevrow->chars = (char *) realloc(prevrow->chars, prevRowSize + curRowSize + 1);
         if (!prevrow->chars) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
-        prevrow->render = (char *) realloc(prevrow->render, prevRowRsize + curRowRsize + 1);
-        if (!prevrow->render) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
 
         memmove(&prevrow->chars[prevRowSize], currow->chars, curRowSize + 1);
-        memmove(&prevrow->render[prevRowRsize], currow->render, curRowRsize + 1);
-
         prevrow->size += curRowSize;
-        prevrow->rsize += curRowRsize;
         editorUpdateRow(prevrow);
 
         if (curline + 1 < E.numrows) {
+            free(currow->chars);
+            free(currow->render);
+
             memmove(E.row + curline, E.row + curline + 1, sizeof(erow) * (E.numrows - curline - 2));
 
             erow *lastrow = &E.row[E.numrows - 1];
@@ -412,22 +414,65 @@ void editorRemoveChars(int cat, int rat, int curline, int clen, int rlen) {
         E.rx = prevRowRsize;
         E.max_rx = E.rx;
 
-        if (clen > 0 && rlen > 0) editorRemoveChars(E.cx, E.rx, E.cy, clen, rlen);
-    } else {
-        memmove(currow->chars + cat - clen, currow->chars + cat, currow->size - cat + 1);
-        memmove(currow->render + rat - rlen, currow->render + rat, currow->rsize - rat + 1);
+        if (clen > 0) editorRemoveChars(E.cx, E.rx, E.cy, clen);
+    } else if (clen < 0 && abs(clen) > currow->size - cat) {
+        clen += currow->size - cat + 1;
 
-        currow->size -= clen;
-        currow->rsize -= rlen;
+        erow *nextrow = &E.row[curline + 1];
+
+        currow->chars = (char*) realloc(currow->chars, (cat + 1) + nextrow->size + 1);
+        memcpy(currow->chars + cat, nextrow->chars, nextrow->size + 1);
+        currow->size = (cat + 1) + nextrow->size;
+
+        editorUpdateRow(currow);
+
+        erow *lastrow = &E.row[E.numrows - 1];
+        if (curline + 1 < E.numrows - 1) {
+            free(nextrow->chars);
+            free(nextrow->render);
+
+            if (curline + 2 < E.numrows - 1)
+                memmove(nextrow, &E.row[curline + 2], sizeof(erow) * (E.numrows - (curline + 3));
+
+            char *chars = strdup(lastrow->chars);
+            char *render = strdup(lastrow->render);
+            E.row[E.numrows - 2] = (erow) {lastrow->size, chars, lastrow->rsize, render};
+        }
+
+        free(lastrow->chars);
+        free(lastrow->render);
+        E.numrows--;
+
+        if (clen < 0) editorRemoveChars(cat, rat, curline, clen);
+    } else {
+        char *src = NULL, *dest = NULL;
+        int movesize = 0;
+        if (clen < 0) {
+            // DELETE
+            src = currow->chars + cat - clen;
+            dest = currow->chars + cat;
+            movesize = currow->size - (cat - clen);
+        } else {
+            // BACKSPACE
+            src = currow->chars + cat;
+            dest = currow->chars + cat - clen;
+            movesize = currow->size - cat + 1;
+        }
+
+        memmove(dest, src, movesize);
+
+        currow->size -= abs(clen);
 
         currow->chars = (char *) realloc(currow->chars, currow->size + 1);
         if (!E.row) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
 
         editorUpdateRow(currow);
 
-        E.cx -= clen;
-        E.rx -= rlen;
-        E.max_rx = E.rx;
+        if (clen > 0) {
+            E.cx -= clen;
+            E.rx = editorRowCxToRx(currow, E.cx);
+            E.max_rx = E.rx;
+        }
     }
 }
 
@@ -627,7 +672,8 @@ void editorRefreshScreen() {
 }
 
 /*** input ***/
-void getPreviousChar(int *dcx, int *drx, int *dcy, int *dmax_rx) {
+// TODO: Revert to previous implementation of same function
+void getPreviousChar(int *dcx, int *drx, int *dcy, int *dmax_rx, int count) {
     erow *curRow = &E.row[E.cy];
     char *chars = curRow->chars;
     char *render = curRow->render;
@@ -650,8 +696,8 @@ void getPreviousChar(int *dcx, int *drx, int *dcy, int *dmax_rx) {
         }
         if (spaceCount == E.cx - 1 || chars[E.cx - cx] == '\t') {
             /* Either all previous chars to '\t' are ' 's till first char of line
-                         * or after all the continuous spaces behind '\t' there is another '\t'
-                         */
+             * or after all the continuous spaces behind '\t' there is another '\t'
+             */
             int extraSpaces = spaceCount % S.tabwidth;
             *drx = S.tabwidth - extraSpaces;
         } else {
@@ -729,7 +775,7 @@ void editorMoveCursor(int c) {
             int dcx = 0;
             int dcy = 0;
             int dmax_rx = 0;
-            getPreviousChar(&dcx, &drx, &dcy, &dmax_rx);
+            getPreviousChar(&dcx, &drx, &dcy, &dmax_rx, 1);
             E.cx -= dcx;
             E.rx -= drx;
             E.cy -= dcy;
@@ -738,13 +784,13 @@ void editorMoveCursor(int c) {
         }
         case PAGE_UP:
         case PAGE_DOWN: {
-            if (c == PAGE_UP) {
-                E.cy = E.rowoff + S.scrolloff;
-            } else {
-                E.cy = E.rowoff + E.screenrows - 1 - S.scrolloff;
-                if (E.cy > E.numrows - 1)
-                    E.cy = E.numrows - 1;
-            }
+            // if (c == PAGE_UP) {
+            //     E.cy = E.rowoff + S.scrolloff;
+            // } else {
+            //     E.cy = E.rowoff + E.screenrows - 1 - S.scrolloff;
+            //     if (E.cy > E.numrows - 1)
+            //         E.cy = E.numrows - 1;
+            // }
             int temp = E.screenrows;
             while (temp--)
                 editorMoveCursor(c == PAGE_UP ? ARROW_UP : ARROW_DOWN);
@@ -793,23 +839,14 @@ void editorProcessKeyPress() {
             editorRowInsert(E.cy, E.cx, E.rx);
             break;
         case DELETE_KEY:
-        case BACKSPACE: {
-            if (E.cx > 0 && E.row[E.cy].chars[E.cx - 1] == '\t') {
-                int drx = 0;
-                int dcx = 0;
-                int dcy = 0;
-                int dmax_rx = 0;
-                getPreviousChar(&dcx, &drx, &dcy, &dmax_rx);
-                if (dcy) editorRemoveChars(E.cx, E.rx, E.cy, 1, 1);
-                else editorRemoveChars(E.cx, E.rx, E.cy, 1, drx);
-            } else {
-                editorRemoveChars(E.cx, E.rx, E.cy, 1, 1);
-            }
+            editorRemoveChars(E.cx, E.rx, E.cy, -1);
             break;
-        }
-
+        case BACKSPACE: 
+            editorRemoveChars(E.cx, E.rx, E.cy, 1);
+            break;
         default:
-            editorRowInsertChar(&E.row[E.cy], E.cx, E.rx, c);
+            if (isprint(c) || c == '\t')
+                editorRowInsertChar(&E.row[E.cy], E.cx, E.rx, c);
     }
 }
 
