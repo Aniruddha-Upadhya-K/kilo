@@ -192,7 +192,7 @@ int getCursorPosition(int *rows, int *cols) {
         4) /* Writes current cursor position */
         return -1;
 
-    while (i < sizeof(buf)) {
+    while (i < sizeof(buf) - 1) {
         if (read(STDIN_FILENO, &buf[i], 1) != 1)
             break;
         if (buf[i] == 'R')
@@ -224,7 +224,7 @@ int getWindowSize(int *rows, int *cols) {
 }
 
 /*** row operations ***/
-int editorRowCxToRx(erow *row, int cx) {
+int editorRowCxToRx(const erow *row, int cx) {
     int rx = 0;
     for (int i = 0; i < cx; i++) {
         if (row->chars[i] == '\t')
@@ -236,7 +236,7 @@ int editorRowCxToRx(erow *row, int cx) {
     return rx;
 }
 
-int editorRowRxToCx(erow *row, int rx) {
+int editorRowRxToCx(const erow *row, int rx) {
     int cx = 0;
     int i = 0;
     while (cx < (int)row->size && i < rx) {
@@ -278,7 +278,7 @@ void editorUpdateRow(erow *row) {
     row->rsize = idx;
 }
 
-void editorRowAppend(char *s, size_t len) {
+void editorRowAppend(const char *s, size_t len) {
     E.row = (erow *) realloc(E.row, sizeof(erow) * (E.numrows + 1));
     if (!E.row) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
 
@@ -398,10 +398,8 @@ void editorRemoveChars(int cat, int rat, int curline, int clen) {
             memmove(E.row + curline, E.row + curline + 1, sizeof(erow) * (E.numrows - curline - 2));
 
             erow *lastrow = &E.row[E.numrows - 1];
-            char *chars = strdup(lastrow->chars);
-            char *render = strdup(lastrow->render);
 
-            E.row[E.numrows - 2] = (erow) {lastrow->size, chars, lastrow->rsize, render};
+            E.row[E.numrows - 2] = (erow) {lastrow->size, strdup(lastrow->chars), lastrow->rsize, strdup(lastrow->render)};
         }
         E.numrows--;
         free(E.row[E.numrows].chars);
@@ -415,14 +413,14 @@ void editorRemoveChars(int cat, int rat, int curline, int clen) {
         E.max_rx = E.rx;
 
         if (clen > 0) editorRemoveChars(E.cx, E.rx, E.cy, clen);
-    } else if (clen < 0 && abs(clen) > currow->size - cat) {
+    } else if (clen < 0 && abs(clen) > (int) currow->size - cat) {
         clen += currow->size - cat + 1;
 
         erow *nextrow = &E.row[curline + 1];
 
-        currow->chars = (char*) realloc(currow->chars, (cat + 1) + nextrow->size + 1);
+        currow->chars = (char*) realloc(currow->chars, cat + nextrow->size + 1);
         memcpy(currow->chars + cat, nextrow->chars, nextrow->size + 1);
-        currow->size = (cat + 1) + nextrow->size;
+        currow->size = cat + nextrow->size;
 
         editorUpdateRow(currow);
 
@@ -432,16 +430,15 @@ void editorRemoveChars(int cat, int rat, int curline, int clen) {
             free(nextrow->render);
 
             if (curline + 2 < E.numrows - 1)
-                memmove(nextrow, &E.row[curline + 2], sizeof(erow) * (E.numrows - (curline + 3));
+                memmove(nextrow, &E.row[curline + 2], sizeof(erow) * (E.numrows - (curline + 3)));
 
-            char *chars = strdup(lastrow->chars);
-            char *render = strdup(lastrow->render);
-            E.row[E.numrows - 2] = (erow) {lastrow->size, chars, lastrow->rsize, render};
+            E.row[E.numrows - 2] = (erow) {lastrow->size, strdup(lastrow->chars), lastrow->rsize, strdup(lastrow->render)};
         }
 
         free(lastrow->chars);
         free(lastrow->render);
         E.numrows--;
+        E.row = (erow*) realloc(E.row, sizeof(erow) * E.numrows);
 
         if (clen < 0) editorRemoveChars(cat, rat, curline, clen);
     } else {
@@ -451,7 +448,7 @@ void editorRemoveChars(int cat, int rat, int curline, int clen) {
             // DELETE
             src = currow->chars + cat - clen;
             dest = currow->chars + cat;
-            movesize = currow->size - (cat - clen);
+            movesize = currow->size - (cat - clen) + 1;
         } else {
             // BACKSPACE
             src = currow->chars + cat;
@@ -479,11 +476,11 @@ void editorRemoveChars(int cat, int rat, int curline, int clen) {
 /*** file i/o ***/
 void editorOpenEmpty() {
     int linelen = 0;
-    char line;
+    char line = '\0';
     editorRowAppend(&line, linelen);
 }
 
-void editorOpen(char *filename) {
+void editorOpen(const char *filename) {
     free(E.filename);
     E.filename = strdup(filename);
     if (!E.filename)
@@ -498,13 +495,11 @@ void editorOpen(char *filename) {
     char *line = NULL;
 
     while ((linelen = getline(&line, &linecap, fp)) != -1) {
-        if (linelen != -1) {
-            while (linelen > 0 &&
-                (line[linelen - 1] == '\n' || line[linelen - 1] == '\r')) {
-                linelen--;
-            }
-            editorRowAppend(line, linelen);
+        while (linelen > 0 &&
+            (line[linelen - 1] == '\n' || line[linelen - 1] == '\r')) {
+            linelen--;
         }
+        editorRowAppend(line, linelen);
     }
     free(line);
     fclose(fp);
@@ -518,7 +513,7 @@ struct abuf {
 
 #define ABUF_INIT {NULL, 0}
 
-void abAppend(struct abuf *ab, char *s, size_t len) {
+void abAppend(struct abuf *ab, const char *s, size_t len) {
     char *new = (char *) realloc(ab->b, ab->len + len);
     if (!E.row) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
 
@@ -672,50 +667,6 @@ void editorRefreshScreen() {
 }
 
 /*** input ***/
-// TODO: Revert to previous implementation of same function
-void getPreviousChar(int *dcx, int *drx, int *dcy, int *dmax_rx, int count) {
-    erow *curRow = &E.row[E.cy];
-    char *chars = curRow->chars;
-    char *render = curRow->render;
-
-    if (E.cx == 0 && E.cy == 0);
-    else if (E.cx == 0) {
-        *dcy += 1;
-
-        erow *prevRow = &E.row[E.cy - *dcy];
-
-        *dcx = -prevRow->size;
-        *drx = -prevRow->rsize;
-        *dmax_rx = -prevRow->rsize + E.max_rx;
-    } else if (chars[E.cx - 1] == '\t') {
-        int spaceCount = 0; /* Number of spaces behind '\t' */
-        int cx = 2;
-        while (cx <= E.cx && chars[E.cx - cx] == ' ') {
-            cx++;
-            spaceCount++;
-        }
-        if (spaceCount == E.cx - 1 || chars[E.cx - cx] == '\t') {
-            /* Either all previous chars to '\t' are ' 's till first char of line
-             * or after all the continuous spaces behind '\t' there is another '\t'
-             */
-            int extraSpaces = spaceCount % S.tabwidth;
-            *drx = S.tabwidth - extraSpaces;
-        } else {
-            int rx = cx;
-            while (render[E.rx - rx] != chars[E.cx - cx]) {
-                rx++;
-            }
-            *drx = rx - cx + 1;
-        }
-        *dcx += 1;
-        *dmax_rx = -(E.rx - *drx) + E.max_rx;
-    } else {
-        *dcx += 1;
-        *drx += 1;
-        *dmax_rx = -(E.rx - *drx) + E.max_rx;
-    }
-}
-
 void editorMoveCursor(int c) {
     switch (c) {
         case ARROW_UP: {
@@ -724,7 +675,7 @@ void editorMoveCursor(int c) {
             }
 
             E.cy--;
-            erow *row = &E.row[E.cy];
+            const erow *row = &E.row[E.cy];
             E.cx = editorRowRxToCx(row, E.max_rx);
             E.rx = editorRowCxToRx(row, E.cx);
 
@@ -740,7 +691,7 @@ void editorMoveCursor(int c) {
             }
 
             E.cy++;
-            erow *row = &E.row[E.cy];
+            const erow *row = &E.row[E.cy];
             E.cx = editorRowRxToCx(row, E.max_rx);
             E.rx = editorRowCxToRx(row, E.cx);
 
@@ -751,7 +702,7 @@ void editorMoveCursor(int c) {
             break;
         }
         case ARROW_RIGHT: {
-            erow *row = &E.row[E.cy];
+            const erow *row = &E.row[E.cy];
             if (E.rx == (int)row->rsize && E.cy == E.numrows - 1)
                 break;
             if (E.rx == (int)row->rsize) {
@@ -763,7 +714,7 @@ void editorMoveCursor(int c) {
                 E.rx += S.tabwidth - (E.rx % S.tabwidth);
                 E.cx++;
                 E.max_rx = E.rx;
-            } else if (row->chars[E.cx] != '\t') {
+            } else {
                 E.cx++;
                 E.rx++;
                 E.max_rx++;
@@ -771,15 +722,50 @@ void editorMoveCursor(int c) {
             break;
         }
         case ARROW_LEFT: {
-            int drx = 0;
-            int dcx = 0;
-            int dcy = 0;
-            int dmax_rx = 0;
-            getPreviousChar(&dcx, &drx, &dcy, &dmax_rx, 1);
-            E.cx -= dcx;
-            E.rx -= drx;
-            E.cy -= dcy;
-            E.max_rx -= dmax_rx;
+            const erow *curRow = &E.row[E.cy];
+            const char *chars = curRow->chars;
+            const char *render = curRow->render;
+
+            if (E.cx == 0 && E.cy == 0)
+                break;
+            if (E.cx == 0) {
+                E.cy--;
+
+                const erow *prevRow = &E.row[E.cy];
+
+                E.cx = prevRow->size;
+                E.rx = prevRow->rsize;
+                E.max_rx = E.rx;
+            } else if (chars[E.cx - 1] == '\t') {
+                int spaceCount = 0; /* Number of spaces behind '\t' */
+                int deltaRx = 0;
+                int cx = 2;
+                while (cx <= E.cx && chars[E.cx - cx] == ' ') {
+                    cx++;
+                    spaceCount++;
+                }
+                if (spaceCount == E.cx - 1 || chars[E.cx - cx] == '\t') {
+                    /* Either all previous chars to '\t' are ' 's till first char of line
+                    * or after all the continuous spaces behind '\t' there is another '\t'
+                    */
+                    int extraSpaces = spaceCount % S.tabwidth;
+                    deltaRx = S.tabwidth - extraSpaces;
+                } else {
+                    int rx = cx;
+                    while (render[E.rx - rx] != chars[E.cx - cx]) {
+                        rx++;
+                    }
+                    deltaRx = rx - cx + 1;
+                }
+                E.rx -= deltaRx;
+                E.cx--;
+                E.max_rx = E.rx;
+
+            } else {
+                E.cx--;
+                E.rx--;
+                E.max_rx = E.rx;
+            }
             break;
         }
         case PAGE_UP:
@@ -807,7 +793,7 @@ void editorMoveCursor(int c) {
             editorMoveCursor(EOL);
             break;
         case EOL: {
-            struct erow *row = &E.row[E.cy];
+            const erow *row = &E.row[E.cy];
             E.cx = row->size;
             E.rx = row->rsize;
             E.max_rx = E.numcols;
