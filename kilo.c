@@ -61,7 +61,6 @@ struct editorConfig {
     int coloff; /* Has the value of first column number in the current view area
                                    (0 indexed) */
     int numrows;
-    int numcols;
     int max_rx;
     struct termios orig_termios;
     char *filename;
@@ -292,9 +291,6 @@ void editorRowAppend(const char *s, size_t len) {
     E.row[at].render = NULL;
     E.row[at].rsize = 0;
     editorUpdateRow(&E.row[at]);
-
-    if (E.numcols < (int)E.row[at].rsize)
-        E.numcols = len + 1;
 }
 
 void editorRowInsertChar(erow *row, int cat, int rat, int c) {
@@ -570,7 +566,7 @@ void editorDrawRows(struct abuf *ab) {
 
     for (int y = 0; y < E.screenrows; y++) {
         if (y >= E.numrows) {
-            if (y == 2 * E.screenrows / 3 && E.numrows == 1 && E.numcols < 1) {
+            if ((E.numrows == 1 && E.row[0].size == 0) && y == 2 * E.screenrows / 3) {
                 welcome(ab);
             } else
             abAppend(ab, "~", 1);
@@ -796,7 +792,9 @@ void editorMoveCursor(int c) {
             const erow *row = &E.row[E.cy];
             E.cx = row->size;
             E.rx = row->rsize;
-            E.max_rx = E.numcols;
+            for (int i = 0; i < E.numrows; i++) {
+                if (E.max_rx < E.row[i].rsize) E.max_rx = E.row[i].rsize;
+            }
             break;
         }
     }
@@ -844,7 +842,6 @@ void initEditor() {
     E.rx = 0;
     E.row = NULL;
     E.numrows = 0;
-    E.numcols = 0;
     E.rowoff = 0;
     E.coloff = 0;
     E.max_rx = 0;
