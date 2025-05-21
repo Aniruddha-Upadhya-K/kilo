@@ -64,8 +64,8 @@ struct editorConfig {
     int max_rx;
     struct termios orig_termios;
     char *filename;
-    char statusmsg[80];
-    time_t statusmsg_time;
+    char statusMsg[80];
+    time_t statusMsg_time;
 };
 
 struct editorConfig E;
@@ -469,38 +469,6 @@ void editorRemoveChars(int cat, int rat, int curline, int clen) {
     }
 }
 
-/*** file i/o ***/
-void editorOpenEmpty() {
-    int linelen = 0;
-    char line = '\0';
-    editorRowAppend(&line, linelen);
-}
-
-void editorOpen(const char *filename) {
-    free(E.filename);
-    E.filename = strdup(filename);
-    if (!E.filename)
-        die("In function: %s\r\nAt line: %d\r\nNo file name given", __func__, __LINE__);
-
-    FILE *fp = fopen(E.filename, "r");
-    if (!fp)
-        die("In function: %s\r\nAt line: %d\r\nNo file exists with the name %s", __func__, __LINE__, E.filename);
-
-    ssize_t linelen = 0;
-    size_t linecap = 0;
-    char *line = NULL;
-
-    while ((linelen = getline(&line, &linecap, fp)) != -1) {
-        while (linelen > 0 &&
-            (line[linelen - 1] == '\n' || line[linelen - 1] == '\r')) {
-            linelen--;
-        }
-        editorRowAppend(line, linelen);
-    }
-    free(line);
-    fclose(fp);
-}
-
 /*** append buffer ***/
 struct abuf {
     char *b;
@@ -627,17 +595,17 @@ void editorDrawStatusBar(struct abuf *ab) {
 void editorSetStatusMessage(char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
-    vsnprintf(E.statusmsg, sizeof(E.statusmsg), fmt, ap);
+    vsnprintf(E.statusMsg, sizeof(E.statusMsg), fmt, ap);
     va_end(ap);
-    E.statusmsg_time = time(NULL);
+    E.statusMsg_time = time(NULL);
 }
 
 void editorDrawMessageBar(struct abuf *ab) {
     abAppend(ab, "\x1b[K", 3);
-    int msglen = strlen(E.statusmsg);
+    int msglen = strlen(E.statusMsg);
     if (msglen > E.screencols) msglen = E.screencols;
-    if (msglen && time(NULL) - E.statusmsg_time < 5)
-        abAppend(ab, E.statusmsg, msglen);
+    if (msglen && time(NULL) - E.statusMsg_time < 5)
+        abAppend(ab, E.statusMsg, msglen);
 }
 
 void editorRefreshScreen() {
@@ -660,6 +628,80 @@ void editorRefreshScreen() {
 
     write(STDOUT_FILENO, ab.b, ab.len);
     abFree(&ab);
+}
+
+/*** file i/o ***/
+void editorOpenEmpty() {
+    int linelen = 0;
+    char line = '\0';
+    editorRowAppend(&line, linelen);
+}
+
+void editorOpen(const char *filename) {
+    free(E.filename);
+    E.filename = strdup(filename);
+    if (!E.filename)
+        die("In function: %s\r\nAt line: %d\r\nNo file name given", __func__, __LINE__);
+
+    FILE *fp = fopen(E.filename, "r");
+    if (!fp)
+        die("In function: %s\r\nAt line: %d\r\nNo file exists with the name %s", __func__, __LINE__, E.filename);
+
+    ssize_t linelen = 0;
+    size_t linecap = 0;
+    char *line = NULL;
+
+    while ((linelen = getline(&line, &linecap, fp)) != -1) {
+        while (linelen > 0 &&
+            (line[linelen - 1] == '\n' || line[linelen - 1] == '\r')) {
+            linelen--;
+        }
+        editorRowAppend(line, linelen);
+    }
+    free(line);
+    fclose(fp);
+}
+
+void editorSave() {
+    if (!E.filename) {
+        editorSetStatusMessage("File name is not set!");
+        return;
+    }
+
+    size_t totalSize = 0;
+    for (int curline = 0; curline < E.numrows - 1; curline++) {
+        totalSize += E.row[curline].size + 2;
+    }
+    totalSize += E.row[E.numrows - 1].size + 1;
+
+    char *buf = malloc(totalSize);
+    if (buf == NULL) die("In function: %s\r\nAt line: %d\r\nmalloc", __func__, __LINE__);
+
+    size_t offset = 0;
+    for (int curline = 0; curline < E.numrows; curline++) {
+        const erow *row = &E.row[curline];
+        memcpy(buf + offset, row->chars, row->size);
+
+        if (curline != E.numrows - 1) {
+            buf[offset + row->size] = '\r';
+            buf[offset + row->size + 1] = '\n';
+            offset += row->size + 2;
+        } else 
+            buf[offset + row->size] = '\0';
+    }
+
+    FILE *file;
+    if (!(file = fopen(E.filename, "r+"))) {
+        editorSetStatusMessage("File does not exist");
+    }
+
+    size_t bytes = fwrite(buf, sizeof(char), totalSize - 1, file);
+    if (bytes < totalSize - 1) die("In function: %s\r\nAt line: %d\r\nfwrite", __func__, __LINE__);
+
+    fclose(file);
+    free(buf);
+
+    editorSetStatusMessage("Total of %ld bytes have been written to disk", totalSize);
 }
 
 /*** input ***/
@@ -793,7 +835,7 @@ void editorMoveCursor(int c) {
             E.cx = row->size;
             E.rx = row->rsize;
             for (int i = 0; i < E.numrows; i++) {
-                if (E.max_rx < E.row[i].rsize) E.max_rx = E.row[i].rsize;
+                if (E.max_rx < (int) E.row[i].rsize) E.max_rx = E.row[i].rsize;
             }
             break;
         }
@@ -808,6 +850,9 @@ void editorProcessKeyPress() {
             write(STDOUT_FILENO, "\x1b[2J", 4);
             write(STDOUT_FILENO, "\x1b[H", 3);
             exit(0);
+            break;
+        case CTRL_KEY('o'):
+            editorSave();
             break;
         case ARROW_UP:
         case ARROW_DOWN:
@@ -846,8 +891,8 @@ void initEditor() {
     E.coloff = 0;
     E.max_rx = 0;
     E.filename = NULL;
-    E.statusmsg[0] = '\0';
-    E.statusmsg_time = 0;
+    E.statusMsg[0] = '\0';
+    E.statusMsg_time = 0;
 
     /* Editor Settings */
     S.scrolloff = 8;
@@ -868,7 +913,7 @@ int main(int argc, char *argv[]) {
         editorOpenEmpty();
     }
 
-    editorSetStatusMessage("Help: Ctrl Q=Quit");
+    editorSetStatusMessage("Help:\tCtrl Q=Quit\tCtrl O=Save");
 
     while (1) {
         editorRefreshScreen();
