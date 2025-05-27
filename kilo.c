@@ -626,7 +626,7 @@ void editorSetMessage(char *fmt, ...) {
     }
 
     if (E.message.isFocus) {
-        E.message.cy = E.screenrows - 1;
+        E.message.cy = E.screenrows + 1;
         E.message.cx = E.message.length;
     }
 
@@ -645,6 +645,8 @@ void editorAppendMessage (const char *s, const int length) {
     if (E.message.length >= S.maxMsgSize) {
         E.message.length = S.maxMsgSize - 1;
     }
+
+    E.message.cx++;
 }
 
 void editorDrawMessageBar(struct abuf *ab) {
