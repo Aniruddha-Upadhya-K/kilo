@@ -101,7 +101,6 @@ void disableRawMode() {
         free(E.row[i].render);
     }
     free(E.row);
-    // if (E.filename) free(E.filename);
     free(E.filename);
 
     if (E.message.length) free(E.message.data);
@@ -500,7 +499,6 @@ void abAppend(struct abuf *ab, const char *s, size_t len) {
 
 void abFree(struct abuf *ab) { 
     free(ab->b); 
-    free(ab);
 }
 
 /*** output ***/
@@ -611,7 +609,7 @@ void editorClearMessage () {
 }
 
 void editorSetMessage(char *fmt, ...) {
-    if (E.message.data) editorClearMessage();
+    if (E.message.length) editorClearMessage();
     E.message.data = (char *) malloc(S.maxMsgSize);
 
     va_list ap;
@@ -646,7 +644,7 @@ void editorAppendMessage (const char *s, const int length) {
         E.message.length = S.maxMsgSize - 1;
     }
 
-    E.message.cx++;
+    if (E.message.cx < S.maxMsgSize) E.message.cx++;
 }
 
 void editorDrawMessageBar(struct abuf *ab) {
@@ -659,18 +657,14 @@ void editorDrawMessageBar(struct abuf *ab) {
 }
 
 void editorRefreshScreen() {
-    struct abuf *ab = malloc(sizeof(struct abuf));
-    if (!ab) die("In function: %s\r\nAt line: %d\r\nmalloc", __func__, __LINE__);
+    struct abuf ab = {NULL, 0};
 
-    ab->b = NULL;
-    ab->len = 0;
+    abAppend(&ab, "\x1b[?25l", 6); /* Hide cursor */
+    abAppend(&ab, "\x1b[H", 3);    /* Move cursor to top-left */
 
-    abAppend(ab, "\x1b[?25l", 6); /* Hide cursor */
-    abAppend(ab, "\x1b[H", 3);    /* Move cursor to top-left */
-
-    editorDrawRows(ab);
-    editorDrawStatusBar(ab);
-    editorDrawMessageBar(ab);
+    editorDrawRows(&ab);
+    editorDrawStatusBar(&ab);
+    editorDrawMessageBar(&ab);
 
     char cursorpos[15];
     size_t cursorposLen;
@@ -682,12 +676,12 @@ void editorRefreshScreen() {
                                     (E.message.cy) + 1, (E.message.cx) + 1);
     }
     abAppend(
-        ab, cursorpos,
+        &ab, cursorpos,
         cursorposLen); /* Move cursor position back to its actual position */
-    abAppend(ab, "\x1b[?25h", 6); /* Unhide the cursor */
+    abAppend(&ab, "\x1b[?25h", 6); /* Unhide the cursor */
 
-    write(STDOUT_FILENO, ab->b, ab->len);
-    abFree(ab);
+    write(STDOUT_FILENO, ab.b, ab.len);
+    abFree(&ab);
 }
 
 /*** file i/o ***/
@@ -718,6 +712,9 @@ void editorOpen(const char *filename) {
         }
         editorRowAppend(line, linelen);
     }
+
+    if (E.row == NULL) editorOpenEmpty(); /* Condition to make sure empty files are opened correctly */
+
     free(line);
     fclose(fp);
 }
@@ -759,9 +756,11 @@ void editorSave(const char *filename) {
         } else 
             buf[offset + row->size] = '\0';
     }
-
-    size_t bytes = fwrite(buf, sizeof(char), writeSize - 1, file);
-    if (bytes < writeSize - 1) die("In function: %s\r\nAt line: %d\r\nfwrite", __func__, __LINE__);
+    
+    if (writeSize > 1) {
+        size_t bytes = fwrite(buf, sizeof(char), writeSize - 1, file);
+        if (bytes < writeSize - 1) die("In function: %s\r\nAt line: %d\r\nfwrite", __func__, __LINE__);
+    }
 
     fclose(file);
     free(buf);
@@ -778,6 +777,13 @@ void editorSaveAs() {
 
     int c;
     while ((c = editorReadKey()) != '\r') {
+        if (filenamesize > S.maxFileNameSize) {
+            editorSetMessage("File name can not exceed %d characters", S.maxFileNameSize);
+            E.message.isFocus = 0;
+            E.message.time = time(NULL);
+            return;
+        }
+
         switch (c) {
             case '\x1b' :
                 free(filename);
