@@ -24,7 +24,7 @@ typedef struct Node {
     struct Node *next, *prev;
 } Node;
 
-Node* nodeCreate(const Action *act) {
+static Node* nodeCreate(const Action *act) {
     Node *node = malloc(sizeof(Node));
     if (!node) exit(1);
 
@@ -33,7 +33,7 @@ Node* nodeCreate(const Action *act) {
     return node;
 }
 
-void nodeDelete(Node *node) {
+static void nodeDelete(Node *node) {
     free(node->action.data);
     free(node);
 }
@@ -45,12 +45,15 @@ typedef struct Stack {
     size_t size;
 } Stack;
 
-void stackInit(Stack *s) {
-    s->top = s->bottom = NULL;
-    s->size = 0;
+Stack stackInit() {
+    Stack s;
+    s.top = s.bottom = NULL;
+    s.size = 0;
+
+    return s;
 }
 
-void stackPush(Stack *s, const Action *act) {
+static void stackPush(Stack *s, const Action *act) {
     if (!s->size) {
         s->top = s->bottom = nodeCreate(act);
         s->size = 1;
@@ -60,6 +63,7 @@ void stackPush(Stack *s, const Action *act) {
     if (s->size == MAX_STACK_SIZE) {
         s->bottom = s->bottom->next;
         nodeDelete(s->bottom->prev);
+        s->size--;
         s->bottom->prev = NULL;
     }
     
@@ -70,7 +74,7 @@ void stackPush(Stack *s, const Action *act) {
     s->size++;
 }
 
-Action* stackPop(Stack *s) {
+static Action* stackPop(Stack *s) {
     if (!s->size) {
         return NULL;
     }
@@ -96,10 +100,39 @@ Action* stackPop(Stack *s) {
 }
 
 /*** action methods ***/
-void actionSet(Action *act, size_t length, int ax, int ay, ActionType type, char *data) {}
+void actionFlush(Action *act) {
+    free(act->data);
+    act->data = NULL;
+    act->length = 0;
+    act->ax = act->ay = 0;
+}
 
-void actionAppend() {}
+void actionDelete(Action *act) {
+    if (act) {
+        if (act->length) {
+            actionFlush(act);
+        }
+        free(act);
+    }
+}
 
-void actionFlush() {}
+void actionSet(Action *act, const size_t length, const int ax, const int ay, const ActionType type, const char *data) {
+    *act = (Action) { length, ax, ay, type, strdup(data) };
+}
 
-void actionCommit() {}
+void actionAppend(Action *act, const char *s, const size_t length) {
+    act->data = (char *) realloc(act->data, act->length + length + 1);
+    if (!act->data) exit(1);
+
+    memcpy(act->data + act->length, s, length);
+    act->length += length;
+    act->data[act->length] = '\0';
+}
+
+void actionCommit(const Action *act, Stack *s) {
+    stackPush(s, act);
+}
+
+Action* actionPop(Stack *s) {
+    return stackPop(s);
+}
