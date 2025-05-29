@@ -79,21 +79,20 @@ static Action* stackPop(Stack *s) {
         return NULL;
     }
 
-    if (s->size == 1) {
-        nodeDelete(s->top);
-        s->top = s->bottom = NULL;
-        s->size = 0;
-    }
-
     Action* act = malloc(sizeof(Action));
     if (!act) exit(1);
 
-    const Node *node = s->top;
+    Node *node = s->top;
     *act = (Action) {node->action.length, node->action.ax, node->action.ay, node->action.type, strdup(node->action.data)};
 
-    s->top = s->top->prev;
-    nodeDelete(s->top->next);
-    s->top->next = NULL;
+    if (s->size == 1) {
+        s->top = s->bottom = NULL;
+    } else {
+        s->top = node->prev;
+        s->top->next = NULL;
+    }
+
+    nodeDelete(node);
     s->size--;
 
     return act;
