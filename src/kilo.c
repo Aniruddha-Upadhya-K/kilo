@@ -14,6 +14,7 @@
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
+#include "lib.h"
 
 /*** defines ***/
 #define CTRL_KEY(k) ((k) & 0x1f)
@@ -81,21 +82,7 @@ struct editorConfig {
 struct editorConfig E;
 
 /*** terminal ***/
-void die(char *s, ...) {
-    va_list ap;
-    char err[100];
-    va_start(ap, s);
-    vsnprintf(err, sizeof(err), s, ap);
-    va_end(ap);
-
-    write(STDOUT_FILENO, "\x1b[2J", 4);
-    write(STDOUT_FILENO, "\x1b[H", 3);
-
-    perror(err);
-    exit(1);
-}
-
-void disableRawMode() {
+void disableRawMode(void) {
     for (int i=0; i < E.numrows; i++) {
         free(E.row[i].chars);
         free(E.row[i].render);
@@ -109,7 +96,7 @@ void disableRawMode() {
         die("In function: %s\r\nAt line: %d\r\ntcsetattr", __func__, __LINE__);
 }
 
-void enableRawMode() {
+void enableRawMode(void) {
     if (tcgetattr(STDIN_FILENO, &E.orig_termios) == -1)
         die("In function: %s\r\nAt line: %d\r\ntcsetattr", __func__, __LINE__);
     atexit(disableRawMode);
@@ -126,7 +113,7 @@ void enableRawMode() {
         die("In function: %s\r\nAt line: %d\r\ntcsetattr", __func__, __LINE__);
 }
 
-int editorReadKey() {
+int editorReadKey(void) {
     char c;
     int nread;
     while ((nread = read(STDIN_FILENO, &c, 1)) != 1) {
@@ -519,7 +506,7 @@ void welcome(struct abuf *ab) {
     abAppend(ab, welcome, welcomelen);
 }
 
-void editorScroll() {
+void editorScroll(void) {
     if (E.numrows < E.screenrows);
     else if (E.cy < E.rowoff + S.scrolloff) {
         if (E.cy > S.scrolloff)
@@ -603,7 +590,7 @@ void editorDrawStatusBar(struct abuf *ab) {
     abAppend(ab, "\r\n", 2);
 }
 
-void editorClearMessage () {
+void editorClearMessage (void) {
     if (E.message.length) free(E.message.data);
     E.message.length = 0;
 }
@@ -656,7 +643,7 @@ void editorDrawMessageBar(struct abuf *ab) {
         editorClearMessage();
 }
 
-void editorRefreshScreen() {
+void editorRefreshScreen(void) {
     struct abuf ab = {NULL, 0};
 
     abAppend(&ab, "\x1b[?25l", 6); /* Hide cursor */
@@ -685,7 +672,7 @@ void editorRefreshScreen() {
 }
 
 /*** file i/o ***/
-void editorOpenEmpty() {
+void editorOpenEmpty(void) {
     int linelen = 0;
     char line = '\0';
     editorRowAppend(&line, linelen);
@@ -767,7 +754,7 @@ void editorSave(const char *filename) {
     editorSetMessage("Total of %ld bytes have been written to disk", writeSize - 1);
 }
 
-void editorSaveAs() {
+void editorSaveAs(void) {
     E.message.isFocus = 1;
     int filenamesize = 0;
     char *filename = NULL;
@@ -956,8 +943,12 @@ void editorMoveCursor(int c) {
     }
 }
 
-void editorProcessKeyPress() {
+void editorProcessKeyPress(void) {
     int c = editorReadKey();
+
+    // TODO: undo time check
+    // if time > threshold
+    // commit action
 
     switch (c) {
         case CTRL_KEY('q'):
@@ -979,25 +970,41 @@ void editorProcessKeyPress() {
         case PAGE_DOWN:
         case HOME_KEY:
         case END_KEY:
+            // TODO: commit action
+
             editorMoveCursor(c);
             break;
         case '\r':
+            // TODO: commit action
+            // set another action
+            // commit action
+
             editorRowInsert(E.cy, E.cx, E.rx);
             break;
         case DELETE_KEY:
+            // TODO: if action type change
+            // commit action
+
             editorRemoveChars(E.cx, E.rx, E.cy, -1);
             break;
         case BACKSPACE: 
+            // TODO: if action type change
+            // commit action
+            // bit extra to do here
+
             editorRemoveChars(E.cx, E.rx, E.cy, 1);
             break;
         default:
             if (isprint(c) || c == '\t')
+                // TODO: if action type change
+                // commit action
+
                 editorRowInsertChar(&E.row[E.cy], E.cx, E.rx, c);
     }
 }
 
 /*** init ***/
-void initEditor() {
+void initEditor(void) {
     /* Editor Configs */
     E.cx = 0;
     E.cy = 0;

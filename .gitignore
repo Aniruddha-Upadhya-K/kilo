@@ -2,3 +2,9 @@ kilo
 *.out
 core
 *.txt
+bin/*
+bin/
+tests/*
+tests/
+.cache/*
+.cache/
