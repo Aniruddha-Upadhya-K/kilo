@@ -15,6 +15,7 @@
 #include <time.h>
 #include <unistd.h>
 #include "lib.h"
+#include "editor.h"
 
 /*** defines ***/
 #define CTRL_KEY(k) ((k) & 0x1f)
@@ -34,52 +35,6 @@ enum editorKey {
     DELETE_KEY,
     EOL
 };
-
-/*** data ***/
-typedef struct erow {
-    size_t size;
-    char *chars;
-    size_t rsize;
-    char *render;
-} erow;
-
-struct editorSetting {
-    int scrolloff;
-    int tabwidth;
-    int maxFileNameSize;
-    int maxMsgSize;
-};
-
-struct editorSetting S;
-
-struct editorMsg {
-    char *data;
-    int length;
-    time_t time;
-    int isFocus;
-
-    int cx;
-    int cy;
-};
-
-struct editorConfig {
-    int cx, cy; /* 0 indexed */
-    int rx;
-    int screenrows;
-    int screencols;
-    erow *row;
-    int rowoff; /* Has the value of first line number in the current view area (0
-                                   indexed) */
-    int coloff; /* Has the value of first column number in the current view area
-                                   (0 indexed) */
-    int numrows;
-    int max_rx;
-    char *filename;
-    struct editorMsg message;
-    struct termios orig_termios;
-};
-
-struct editorConfig E;
 
 /*** terminal ***/
 void disableRawMode(void) {
@@ -863,7 +818,6 @@ void editorMoveCursor(int c) {
         case ARROW_LEFT: {
             const erow *curRow = &E.row[E.cy];
             const char *chars = curRow->chars;
-            const char *render = curRow->render;
 
             if (E.cx == 0 && E.cy == 0)
                 break;
@@ -890,6 +844,7 @@ void editorMoveCursor(int c) {
                     int extraSpaces = spaceCount % S.tabwidth;
                     deltaRx = S.tabwidth - extraSpaces;
                 } else {
+                    const char *render = curRow->render;
                     int rx = cx;
                     while (render[E.rx - rx] != chars[E.cx - cx]) {
                         rx++;
@@ -1023,6 +978,7 @@ void initEditor(void) {
     S.tabwidth = 4;
     S.maxFileNameSize = 40;
     S.maxMsgSize = 80;
+    S.maxHistory = 10;
 
     enableRawMode();
     if (getWindowSize(&E.screenrows, &E.screencols) == -1)

@@ -6,12 +6,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include "lib.h"
 #include "types.h"
 #include "stack.h"
-// #include "undo.h"
+#include "editor.h"
 
 /*** action types ***/
-
 struct Action {
     size_t length;
     int ax, ay;
@@ -21,15 +21,15 @@ struct Action {
 };
 
 /*** node type and methods ***/
-
 typedef struct Node {
     Action action;
     struct Node *next, *prev;
 } Node;
 
+// CAUTION: The pointer to Node that is returned should be freed by the caller by calling nodeDelete(Node *)
 static Node* nodeCreate(const Action *act) {
     Node *node = malloc(sizeof(Node));
-    if (!node) exit(1);
+    if (!node) die("In function: %s\r\nAt line: %d\r\nmalloc", __func__, __LINE__);
 
     node->action = (Action) {act->length, act->ax, act->ay, act->type, strdup(act->data), act->startTime };
     node->next = node->prev = NULL;
@@ -42,29 +42,34 @@ static void nodeDelete(Node *node) {
 }
 
 /*** stack type and methods ***/
-
 struct Stack {
     Node *top, *bottom;
     size_t size;
-    // void (*execute)(void);
 };
 
-Stack stackInit(void) {
-    Stack s;
-    s.top = s.bottom = NULL;
-    s.size = 0;
-
-    // switch (type) {
-    //     case UNDO: {
-    //         s.execute = undo;
-    //         break;
-    //     }
-    //     case REDO:
-    //         s.execute = redo;
-    //         break;
-    // }
-
+// CAUTION: The pointer to Stack that is returned should be freed by the caller by calling stackDelete(Stack *)
+Stack* stackInit(void) {
+    Stack *s = malloc(sizeof(Stack));
+    if (!s) die("In function: %s\r\nAt line: %d\r\nmalloc", __func__, __LINE__);
+    s->top = s->bottom = NULL;
+    s->size = 0;
     return s;
+}
+
+const Action* stackPeek(const Stack* s) {
+    return &s->top->action;
+}
+
+static void deleteStackRecursive(Node *node) {
+    if (!node) {
+        return;
+    }
+    deleteStackRecursive(node->next);
+    nodeDelete(node);
+}
+
+void stackDelete(Stack *s) {
+    deleteStackRecursive(s->top);
 }
 
 static void stackPush(Stack *s, const Action *act) {
@@ -74,7 +79,7 @@ static void stackPush(Stack *s, const Action *act) {
         return;
     }
 
-    if (s->size == MAX_STACK_SIZE) {
+    if (s->size == S.maxHistory) {
         s->bottom = s->bottom->next;
         nodeDelete(s->bottom->prev);
         s->size--;
@@ -88,13 +93,14 @@ static void stackPush(Stack *s, const Action *act) {
     s->size++;
 }
 
+// CAUTION: The pointer to Action that is returned should be freed by the caller
 static Action* stackPop(Stack *s) {
     if (!s->size) {
         return NULL;
     }
 
     Action* act = malloc(sizeof(Action));
-    if (!act) exit(1);
+    if (!act) die("In function: %s\r\nAt line: %d\r\nmalloc", __func__, __LINE__);
 
     Node *node = s->top;
     *act = (Action) {node->action.length, node->action.ax, node->action.ay, node->action.type, strdup(node->action.data), node->action.startTime };
@@ -121,12 +127,10 @@ void actionFlush(Action *act) {
 }
 
 void actionDelete(Action *act) {
-    if (act) {
-        if (act->length) {
-            actionFlush(act);
-        }
-        free(act);
+    if (act->length) {
+        actionFlush(act);
     }
+    free(act);
 }
 
 void actionSet(Action *act, const size_t length, const int ax, const int ay, const ActionType type, const char *data) {
@@ -135,7 +139,7 @@ void actionSet(Action *act, const size_t length, const int ax, const int ay, con
 
 void actionAppend(Action *act, const char *s, const size_t length, const int dax, const int day) {
     act->data = (char *) realloc(act->data, act->length + length + 1);
-    if (!act->data) exit(1);
+    if (!act->data) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
 
     memcpy(act->data + act->length, s, length);
     act->length += length;
@@ -145,8 +149,9 @@ void actionAppend(Action *act, const char *s, const size_t length, const int dax
     act->ay += day;
 }
 
-void actionCommit(const Action *act, Stack *s) {
+void actionCommit(Action *act, Stack *s) {
     stackPush(s, act);
+    actionFlush(act);
 }
 
 Action* actionPop(Stack *s) {
