@@ -206,14 +206,13 @@ int editorRowRxToCx(const erow *row, int rx) {
 }
 
 void editorUpdateRow(erow *row) {
-    free(row->render);
-
     int tabcount = 0;
     for (size_t i = 0; i < row->size; i++)
         if (row->chars[i] == '\t')
             tabcount++;
 
-    row->render = malloc(row->size + tabcount * (S.tabwidth - 1) + 1);
+    row->render = realloc(row->render, row->size + tabcount * (S.tabwidth - 1) + 1);
+    if (!row->render) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
 
     size_t idx = 0;
     for (size_t j = 0; j < row->size; j++) {
@@ -276,25 +275,27 @@ void editorRowInsert(int curline, int cat, int rat) {
     if (!E.row) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
 
     erow *currow = E.row + curline;
-    erow *nextrow = E.row + curline + 1;
 
     if (cat < 0 || cat > (int) currow->size) cat = currow->size;
     if (rat < 0 || rat > (int) currow->rsize) rat = currow->rsize;
 
-    int size = currow->size - cat;
-
     if (curline < E.numrows - 1)
-        memmove(nextrow + 1, nextrow, sizeof(erow) * (E.numrows - curline - 1));
+        memmove(currow + 2, currow + 1, sizeof(erow) * (E.numrows - curline - 1));
 
-    nextrow->chars = (char *) malloc(size + 1);
-    if (!nextrow->chars) die("In function: %s\r\nAt line: %d\r\nmalloc", __func__, __LINE__);
-    nextrow->render = (char *) malloc(1);
+    int size = currow->size - cat;
+    erow nextrow = {.size = size, .rsize = currow->rsize - rat};
 
-    memcpy(nextrow->chars, &currow->chars[cat], currow->size + 1 - cat);
-    currow->chars[cat] = '\0';
+    nextrow.chars = (char *) malloc(size + 1);
+    if (!nextrow.chars) die("In function: %s\r\nAt line: %d\r\nmalloc", __func__, __LINE__);
+
+    memcpy(nextrow.chars, &currow->chars[cat], currow->size + 1 - cat);
+    currow->chars[cat] = currow->render[rat] = '\0';
 
     currow->chars = (char *) realloc(currow->chars, cat + 1);
     if (!currow->chars) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
+
+    currow->render = (char *) realloc(currow->render, rat + 1);
+    if (!currow->render) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
 
     E.numrows++;
     E.cy++;
@@ -304,19 +305,25 @@ void editorRowInsert(int curline, int cat, int rat) {
 
     currow->size = cat;
     currow->rsize = rat;
-    nextrow->size = size;
-    editorUpdateRow(nextrow);
+    E.row[curline + 1] = nextrow;
+    editorUpdateRow(&E.row[curline + 1]);
 }
 
 /*
+* Description: 
+* +ve clen => BACKSPACE functionality
+* -ve clen => DELETE functionality
+*
+* BACKSPACE functionality:
 * from one character before the position 'cat' in current row to a total of 'clen' characters will be removed from 'chars' array(s)
-* from one character before the position 'rat' in current row to a total of 'rlen' characters will be removed from 'render' array(s)
+*
+* DELETE functionality:
+* characters after current character 'cat', in current row (or after) will be removed to a total of absolute value of 'clen' characters from 'chars' array(s)
 */
-void editorRemoveChars(int cat, int rat, int curline, int clen) {
+void editorRemoveChars(int cat, int curline, int clen) {
     if (curline > E.numrows - 1 && curline < 0) curline = E.numrows - 1;
     erow *currow = &E.row[curline];
     if (cat > (int) currow->size && cat < 0) cat = currow->size;
-    if (rat > (int) currow->rsize && rat < 0) rat = currow->rsize;
 
     if (clen > cat && curline == 0) {
         clen = cat;
@@ -362,7 +369,7 @@ void editorRemoveChars(int cat, int rat, int curline, int clen) {
         E.rx = prevRowRsize;
         E.max_rx = E.rx;
 
-        if (clen > 0) editorRemoveChars(E.cx, E.rx, E.cy, clen);
+        if (clen > 0) editorRemoveChars(E.cx, E.cy, clen);
     } else if (clen < 0 && abs(clen) > (int) currow->size - cat) {
         clen += currow->size - cat + 1;
 
@@ -390,7 +397,7 @@ void editorRemoveChars(int cat, int rat, int curline, int clen) {
         E.numrows--;
         E.row = (erow*) realloc(E.row, sizeof(erow) * E.numrows);
 
-        if (clen < 0) editorRemoveChars(cat, rat, curline, clen);
+        if (clen < 0) editorRemoveChars(cat, curline, clen);
     } else {
         char *src = NULL, *dest = NULL;
         int movesize = 0;
@@ -641,7 +648,7 @@ void editorOpen(const char *filename) {
 
     FILE *fp = fopen(E.filename, "r");
     if (!fp)
-        die("In function: %s\r\nAt line: %d\r\nNo file exists with the name %s", __func__, __LINE__, E.filename);
+        fp = fopen(E.filename, "w");
 
     ssize_t linelen = 0;
     size_t linecap = 0;
@@ -940,14 +947,14 @@ void editorProcessKeyPress(void) {
             // TODO: if action type change
             // commit action
 
-            editorRemoveChars(E.cx, E.rx, E.cy, -1);
+            editorRemoveChars(E.cx, E.cy, -1);
             break;
         case BACKSPACE: 
             // TODO: if action type change
             // commit action
             // bit extra to do here
 
-            editorRemoveChars(E.cx, E.rx, E.cy, 1);
+            editorRemoveChars(E.cx, E.cy, 1);
             break;
         default:
             if (isprint(c) || c == '\t')
@@ -957,6 +964,9 @@ void editorProcessKeyPress(void) {
                 editorRowInsertChar(&E.row[E.cy], E.cx, E.rx, c);
     }
 }
+
+struct editorSetting S;
+struct editorConfig E;
 
 /*** init ***/
 void initEditor(void) {
@@ -994,7 +1004,7 @@ int main(int argc, char *argv[]) {
         editorOpenEmpty();
     }
 
-    editorSetMessage("Help:\tCtrl Q=Quit\tCtrl O=Save");
+    editorSetMessage("Help:\tCtrl+Q=Quit\tCtrl+O=Save\tCtrl+W=Save As");
 
     while (1) {
         editorRefreshScreen();

@@ -11,7 +11,8 @@ struct editorSetting {
     int maxFileNameSize;
     int maxMsgSize;
     size_t maxHistory;
-} S;
+};
+extern struct editorSetting S;
 
 typedef struct {
     size_t size;
@@ -45,8 +46,13 @@ struct editorConfig {
     char *filename;
     struct editorMsg message;
     struct termios orig_termios;
-} E;
+};
+extern struct editorConfig E;
 
-void editorRemoveChars(int cat, int rat, int curline, int clen);
+void editorRemoveChars(int cat, int curline, int clen);
+
+void editorRowInsertChar(erow *row, int cat, int rat, int c);
+
+void editorRowInsert(int curline, int cat, int rat);
 
 #endif // !EDITOR_H
