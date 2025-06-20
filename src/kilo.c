@@ -246,29 +246,39 @@ void editorRowAppend(const char *s, size_t len) {
     editorUpdateRow(&E.row[at]);
 }
 
-void editorRowInsertChar(erow *row, int cat, int rat, int c) {
+/*
+ * Description:
+ * Inserts characters at the position of the cursor but does not modify the cursor position
+ * Simulates opposite of DELETE key function
+ */
+void editorRowInsertCharAfter(erow *row, int cat, const char *s, const int len) {
     if (cat < 0 || cat > (int) row->size) cat = row->size;
-    if (rat < 0 || rat > (int) row->rsize) rat = row->rsize;
 
-    int clen = 1, rlen = 1;
-    if (c == '\t') 
-        rlen = S.tabwidth - (rat % S.tabwidth);
+    row->chars = (char *) realloc(row->chars, row->size + len + 1);
+    if (!row->chars) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
+    memmove(row->chars + cat + len, row->chars + cat, row->size - cat + 1);
+    memcpy(row->chars + cat, s, len);
 
-    row->chars = (char *) realloc(row->chars, row->size + clen + 1);
-    if (!E.row) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
-    memmove(row->chars + cat + clen, row->chars + cat, row->size - cat + 1);
-    row->chars[cat] = c;
-
-    row->size += clen;
+    row->size += len;
 
     editorUpdateRow(row);
+}
 
-    E.cx += clen;
-    E.rx += rlen;
+/*
+ * Description:
+ * Inserts characters at the position of the cursor and modifies the cursor position
+ * Default behaviour
+ * Exactly opposite of BACKSPACE key function
+ */
+void editorRowInsertCharBefore(erow *row, int cat, const char *s, const int len) {
+    editorRowInsertCharAfter(row, cat, s, len);
+
+    E.cx += len;
+    E.rx = editorRowCxToRx(row, E.cx);
     if (E.rx > E.max_rx) E.max_rx = E.rx;
 }
 
-void editorRowInsert(int curline, int cat, int rat) {
+void editorRowInsertAfter(int curline, int cat, int rat) {
     if (curline < 0 || curline >= E.numrows) curline = E.numrows - 1;
 
     E.row = (erow *) realloc(E.row, sizeof(erow) * (E.numrows + 1));
@@ -297,16 +307,20 @@ void editorRowInsert(int curline, int cat, int rat) {
     currow->render = (char *) realloc(currow->render, rat + 1);
     if (!currow->render) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
 
+    currow->size = cat;
+    currow->rsize = rat;
+    E.row[curline + 1] = nextrow;
+    editorUpdateRow(&E.row[curline + 1]);
+}
+
+void editorRowInsertBefore(int curline, int cat, int rat) {
+    editorRowInsertAfter(curline, cat, rat);
+
     E.numrows++;
     E.cy++;
     E.max_rx = 0;
     E.cx = 0;
     E.rx = 0;
-
-    currow->size = cat;
-    currow->rsize = rat;
-    E.row[curline + 1] = nextrow;
-    editorUpdateRow(&E.row[curline + 1]);
 }
 
 /*
@@ -941,7 +955,7 @@ void editorProcessKeyPress(void) {
             // set another action
             // commit action
 
-            editorRowInsert(E.cy, E.cx, E.rx);
+            editorRowInsertAfter(E.cy, E.cx, E.rx);
             break;
         case DELETE_KEY:
             // TODO: if action type change
@@ -961,7 +975,7 @@ void editorProcessKeyPress(void) {
                 // TODO: if action type change
                 // commit action
 
-                editorRowInsertChar(&E.row[E.cy], E.cx, E.rx, c);
+                editorRowInsertCharBefore(&E.row[E.cy], E.cx, (char *) &c, 1);
     }
 }
 
