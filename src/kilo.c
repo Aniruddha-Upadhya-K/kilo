@@ -309,6 +309,7 @@ void editorRowInsertAfter(int curline, int cat, int rat) {
 
     currow->size = cat;
     currow->rsize = rat;
+    E.numrows++;
     E.row[curline + 1] = nextrow;
     editorUpdateRow(&E.row[curline + 1]);
 }
@@ -316,7 +317,6 @@ void editorRowInsertAfter(int curline, int cat, int rat) {
 void editorRowInsertBefore(int curline, int cat, int rat) {
     editorRowInsertAfter(curline, cat, rat);
 
-    E.numrows++;
     E.cy++;
     E.max_rx = 0;
     E.cx = 0;
@@ -955,7 +955,7 @@ void editorProcessKeyPress(void) {
             // set another action
             // commit action
 
-            editorRowInsertAfter(E.cy, E.cx, E.rx);
+            editorRowInsertBefore(E.cy, E.cx, E.rx);
             break;
         case DELETE_KEY:
             // TODO: if action type change
