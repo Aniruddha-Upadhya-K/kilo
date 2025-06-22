@@ -49,14 +49,14 @@ struct editorConfig {
 };
 extern struct editorConfig E;
 
-void editorRemoveChars(int cat, int curline, int clen);
+void editorRowInsertCharAfter(int curline, int cat, const char *s, const int len);
 
-void editorRowInsertCharAfter(erow *row, int cat, const char *s, const int len);
+void editorRowInsertCharBefore(int curline, int cat, const char *s, const int len);
 
-void editorRowInsertCharBefore(erow *row, int cat, const char *s, const int len);
+void editorRowInsertAfter(int curline, int cat);
 
-void editorRowInsertAfter(int curline, int cat, int rat);
+void editorRowInsertBefore(int curline, int cat);
 
-void editorRowInsertBefore(int curline, int cat, int rat);
+void editorRemoveChars(int curline, int cat, int clen);
 
 #endif // !EDITOR_H

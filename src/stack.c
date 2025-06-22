@@ -5,20 +5,10 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
 #include "lib.h"
 #include "types.h"
 #include "stack.h"
 #include "editor.h"
-
-/*** action types ***/
-struct Action {
-    size_t length;
-    int ax, ay;
-    ActionType type;
-    char *data;
-    time_t startTime;
-};
 
 /*** node type and methods ***/
 typedef struct Node {
@@ -31,7 +21,7 @@ static Node* nodeCreate(const Action *act) {
     Node *node = malloc(sizeof(Node));
     if (!node) die("In function: %s\r\nAt line: %d\r\nmalloc", __func__, __LINE__);
 
-    node->action = (Action) {act->length, act->ax, act->ay, act->type, strdup(act->data), act->startTime };
+    node->action = (Action) {act->length, act->ax, act->ay, act->type, strdup(act->data) };
     node->next = node->prev = NULL;
     return node;
 }
@@ -57,7 +47,7 @@ Stack* stackInit(void) {
 }
 
 const Action* stackPeek(const Stack* s) {
-    return &s->top->action;
+    return s->size ? &s->top->action : NULL;
 }
 
 static void deleteStackRecursive(Node *node) {
@@ -103,7 +93,7 @@ static Action* stackPop(Stack *s) {
     if (!act) die("In function: %s\r\nAt line: %d\r\nmalloc", __func__, __LINE__);
 
     Node *node = s->top;
-    *act = (Action) {node->action.length, node->action.ax, node->action.ay, node->action.type, strdup(node->action.data), node->action.startTime };
+    *act = (Action) {node->action.length, node->action.ax, node->action.ay, node->action.type, strdup(node->action.data) };
 
     if (s->size == 1) {
         s->top = s->bottom = NULL;
@@ -133,8 +123,14 @@ void actionDelete(Action *act) {
     free(act);
 }
 
+int actionIsEmpty(const Action *act) {
+    if (act->length) {
+        return 0;
+    } else return 1;
+}
+
 void actionSet(Action *act, const size_t length, const int ax, const int ay, const ActionType type, const char *data) {
-    *act = (Action) { length, ax, ay, type, strdup(data), time(NULL) };
+    *act = (Action) { length, ax, ay, type, strdup(data) };
 }
 
 void actionAppend(Action *act, const char *s, const size_t length, const int dax, const int day) {
@@ -147,6 +143,10 @@ void actionAppend(Action *act, const char *s, const size_t length, const int dax
 
     act->ax += dax;
     act->ay += day;
+}
+
+void actionTypeConv(Action *act, ActionType newType) {
+    act->type = newType;
 }
 
 void actionCommit(Action *act, Stack *s) {

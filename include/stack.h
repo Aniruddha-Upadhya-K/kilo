@@ -14,9 +14,13 @@ void actionFlush(Action *act);
 
 void actionDelete(Action *act);
 
+int actionIsEmpty(const Action *act);
+
 void actionSet(Action *act, const size_t length, const int ax, const int ay, const ActionType type, const char *data);
 
 void actionAppend(Action *act, const char *s, const size_t length, const int dax, const int day);
+
+void actionTypeConv(Action *act, ActionType newType);
 
 void actionCommit(Action *act, Stack *s);
 

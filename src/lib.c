@@ -1,5 +1,7 @@
 #include <stdarg.h>
 #include <unistd.h>
+#include <stdlib.h>
+#include <stdio.h>
 #include "lib.h"
 
 void die(char *s, ...) {

@@ -251,7 +251,8 @@ void editorRowAppend(const char *s, size_t len) {
  * Inserts characters at the position of the cursor but does not modify the cursor position
  * Simulates opposite of DELETE key function
  */
-void editorRowInsertCharAfter(erow *row, int cat, const char *s, const int len) {
+void editorRowInsertCharAfter(int curline, int cat, const char *s, const int len) {
+    erow *row = &E.row[curline];
     if (cat < 0 || cat > (int) row->size) cat = row->size;
 
     row->chars = (char *) realloc(row->chars, row->size + len + 1);
@@ -270,15 +271,20 @@ void editorRowInsertCharAfter(erow *row, int cat, const char *s, const int len) 
  * Default behaviour
  * Exactly opposite of BACKSPACE key function
  */
-void editorRowInsertCharBefore(erow *row, int cat, const char *s, const int len) {
-    editorRowInsertCharAfter(row, cat, s, len);
+void editorRowInsertCharBefore(int curline, int cat, const char *s, const int len) {
+    editorRowInsertCharAfter(curline, cat, s, len);
 
     E.cx += len;
-    E.rx = editorRowCxToRx(row, E.cx);
+    E.rx = editorRowCxToRx(&E.row[curline], E.cx);
     if (E.rx > E.max_rx) E.max_rx = E.rx;
 }
 
-void editorRowInsertAfter(int curline, int cat, int rat) {
+/*
+ * Description:
+ * Inserts line at the cursor position but cursor position remains unchanged
+ * Simulates opposite of DELETE key function at the end of a line
+ */
+void editorRowInsertAfter(int curline, int cat) {
     if (curline < 0 || curline >= E.numrows) curline = E.numrows - 1;
 
     E.row = (erow *) realloc(E.row, sizeof(erow) * (E.numrows + 1));
@@ -287,35 +293,37 @@ void editorRowInsertAfter(int curline, int cat, int rat) {
     erow *currow = E.row + curline;
 
     if (cat < 0 || cat > (int) currow->size) cat = currow->size;
-    if (rat < 0 || rat > (int) currow->rsize) rat = currow->rsize;
 
     if (curline < E.numrows - 1)
         memmove(currow + 2, currow + 1, sizeof(erow) * (E.numrows - curline - 1));
 
     int size = currow->size - cat;
-    erow nextrow = {.size = size, .rsize = currow->rsize - rat};
+    erow nextrow = {.size = size};
 
     nextrow.chars = (char *) malloc(size + 1);
     if (!nextrow.chars) die("In function: %s\r\nAt line: %d\r\nmalloc", __func__, __LINE__);
 
     memcpy(nextrow.chars, &currow->chars[cat], currow->size + 1 - cat);
-    currow->chars[cat] = currow->render[rat] = '\0';
+    currow->chars[cat] = '\0';
 
     currow->chars = (char *) realloc(currow->chars, cat + 1);
     if (!currow->chars) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
 
-    currow->render = (char *) realloc(currow->render, rat + 1);
-    if (!currow->render) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
-
     currow->size = cat;
-    currow->rsize = rat;
     E.numrows++;
     E.row[curline + 1] = nextrow;
+    editorUpdateRow(&E.row[curline]);
     editorUpdateRow(&E.row[curline + 1]);
 }
 
-void editorRowInsertBefore(int curline, int cat, int rat) {
-    editorRowInsertAfter(curline, cat, rat);
+/*
+ * Description:
+ * Inserts line at the cursor position and puts cursor to new line
+ * Default behaviour
+ * Simulates opposite of BACKSPACE key function at the end of a line
+ */
+void editorRowInsertBefore(int curline, int cat) {
+    editorRowInsertAfter(curline, cat);
 
     E.cy++;
     E.max_rx = 0;
@@ -334,7 +342,7 @@ void editorRowInsertBefore(int curline, int cat, int rat) {
 * DELETE functionality:
 * characters after current character 'cat', in current row (or after) will be removed to a total of absolute value of 'clen' characters from 'chars' array(s)
 */
-void editorRemoveChars(int cat, int curline, int clen) {
+void editorRemoveChars(int curline, int cat, int clen) {
     if (curline > E.numrows - 1 && curline < 0) curline = E.numrows - 1;
     erow *currow = &E.row[curline];
     if (cat > (int) currow->size && cat < 0) cat = currow->size;
@@ -383,7 +391,7 @@ void editorRemoveChars(int cat, int curline, int clen) {
         E.rx = prevRowRsize;
         E.max_rx = E.rx;
 
-        if (clen > 0) editorRemoveChars(E.cx, E.cy, clen);
+        if (clen > 0) editorRemoveChars(E.cy, E.cx, clen);
     } else if (clen < 0 && abs(clen) > (int) currow->size - cat) {
         clen += currow->size - cat + 1;
 
@@ -411,7 +419,7 @@ void editorRemoveChars(int cat, int curline, int clen) {
         E.numrows--;
         E.row = (erow*) realloc(E.row, sizeof(erow) * E.numrows);
 
-        if (clen < 0) editorRemoveChars(cat, curline, clen);
+        if (clen < 0) editorRemoveChars(curline, cat, clen);
     } else {
         char *src = NULL, *dest = NULL;
         int movesize = 0;
@@ -955,27 +963,28 @@ void editorProcessKeyPress(void) {
             // set another action
             // commit action
 
-            editorRowInsertBefore(E.cy, E.cx, E.rx);
+            editorRowInsertBefore(E.cy, E.cx);
             break;
         case DELETE_KEY:
             // TODO: if action type change
             // commit action
 
-            editorRemoveChars(E.cx, E.cy, -1);
+            editorRemoveChars(E.cy, E.cx, -1);
             break;
         case BACKSPACE: 
             // TODO: if action type change
             // commit action
             // bit extra to do here
 
-            editorRemoveChars(E.cx, E.cy, 1);
+            editorRemoveChars(E.cy, E.cx, 1);
             break;
         default:
-            if (isprint(c) || c == '\t')
+            if (isprint(c) || c == '\t') {
                 // TODO: if action type change
                 // commit action
 
-                editorRowInsertCharBefore(&E.row[E.cy], E.cx, (char *) &c, 1);
+                editorRowInsertCharBefore(E.cy, E.cx, (char *) &c, 1);
+            }
     }
 }
 

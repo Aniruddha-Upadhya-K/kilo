@@ -12,7 +12,8 @@ struct History {
 
 void historyInit(void);
 
-// TODO: this function should clear the stacks and the actions that were created.
-void historyFlush(History *H);
+void historyFlush(void);
+
+void historyFlushRedo(void);
 
 #endif // !HISTORY_H
