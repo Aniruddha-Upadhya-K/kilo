@@ -11,6 +11,12 @@ struct editorSetting {
     int maxFileNameSize;
     int maxMsgSize;
     size_t maxHistory;
+
+    /* 
+     * if > 0, then action is appended after that time, 
+     * if <= 0, then action will not be split based on time
+     */
+    double maxActionTime; // in seconds; 
 };
 extern struct editorSetting S;
 

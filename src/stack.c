@@ -2,6 +2,7 @@
 #define _GNU_SOURCE
 #define _BSD_SOURCE
 
+#include <sys/types.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -117,7 +118,7 @@ void actionFlush(Action *act) {
 }
 
 void actionDelete(Action *act) {
-    if (act->length) {
+    if (act->length ) {
         actionFlush(act);
     }
     free(act);
@@ -129,16 +130,16 @@ int actionIsEmpty(const Action *act) {
     } else return 1;
 }
 
-void actionSet(Action *act, const size_t length, const int ax, const int ay, const ActionType type, const char *data) {
+void actionSet(Action *act, const ssize_t length, const int ax, const int ay, const ActionType type, const char *data) {
     *act = (Action) { length, ax, ay, type, strdup(data) };
 }
 
-void actionAppend(Action *act, const char *s, const size_t length, const int dax, const int day) {
-    act->data = (char *) realloc(act->data, act->length + length + 1);
+void actionAppend(Action *act, const char *s, const ssize_t dlength, const int dax, const int day) {
+    act->data = (char *) realloc(act->data, act->length + dlength + 1);
     if (!act->data) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
 
-    memcpy(act->data + act->length, s, length);
-    act->length += length;
+    memcpy(act->data + act->length, s, dlength);
+    act->length += dlength;
     act->data[act->length] = '\0';
 
     act->ax += dax;

@@ -1,7 +1,7 @@
 #ifndef STACK_H
 #define STACK_H
 
-#include <string.h>
+#include <sys/types.h>
 #include "types.h"
 
 Stack* stackInit(void);
@@ -16,9 +16,9 @@ void actionDelete(Action *act);
 
 int actionIsEmpty(const Action *act);
 
-void actionSet(Action *act, const size_t length, const int ax, const int ay, const ActionType type, const char *data);
+void actionSet(Action *act, const ssize_t length, const int ax, const int ay, const ActionType type, const char *data);
 
-void actionAppend(Action *act, const char *s, const size_t length, const int dax, const int day);
+void actionAppend(Action *act, const char *s, const ssize_t dlength, const int dax, const int day);
 
 void actionTypeConv(Action *act, ActionType newType);
 

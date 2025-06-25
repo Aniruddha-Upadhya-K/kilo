@@ -16,6 +16,7 @@
 #include <unistd.h>
 #include "lib.h"
 #include "editor.h"
+#include "history.h"
 
 /*** defines ***/
 #define CTRL_KEY(k) ((k) & 0x1f)
@@ -990,6 +991,7 @@ void editorProcessKeyPress(void) {
 
 struct editorSetting S;
 struct editorConfig E;
+struct History H;
 
 /*** init ***/
 void initEditor(void) {
@@ -1012,6 +1014,10 @@ void initEditor(void) {
     S.maxFileNameSize = 40;
     S.maxMsgSize = 80;
     S.maxHistory = 10;
+    S.maxActionTime = 10;
+
+    /* Editor History */
+    historyInit();
 
     enableRawMode();
     if (getWindowSize(&E.screenrows, &E.screencols) == -1)
