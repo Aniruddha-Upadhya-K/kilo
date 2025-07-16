@@ -7,10 +7,11 @@
 struct History {
     Stack *undoStack, *redoStack;
     Action action;
+    time_t time;
     void (*undo)(void);
     void (*redo)(void);
-    time_t time;
-    void (*record)(ActionType type, char *data, ssize_t length, int ax, int ay);
+    void (*record)(const ActionType type, const char *data, const ssize_t length, const int ax, const int ay);
+    void (*commit)(void);
 };
 extern struct History H;
 

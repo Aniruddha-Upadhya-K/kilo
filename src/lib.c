@@ -20,13 +20,13 @@ void die(char *s, ...) {
 }
 
 /*
- * All lengths are coints except last null character
+ * Description: Slices and keeps substring from `from` up until `rlen` or null character, whichever is first. All lengths are counted excluding last null character
  */
-void stringSlice(char *s, size_t slen, size_t rlen, int from) {
+void stringSlice(char **s, size_t slen, size_t rlen, int from) {
     if (rlen >= slen) {
-        s = realloc(s, 1);
-        if (!s) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
-        s[0] = '\0';
+        *s = realloc(*s, 1);
+        if (!*s) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
+        (*s)[0] = '\0';
         return;
     }
 
@@ -35,8 +35,19 @@ void stringSlice(char *s, size_t slen, size_t rlen, int from) {
     if (from + rlen > slen) rlen = slen - from;
 
     size_t nlen = slen - rlen;
-    memmove(s + from, s + from + rlen, rlen);
-    s = realloc(s, nlen + 1);
-    if (!s) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
-    s[nlen] = '\0';
+    memmove(*s + from, *s + from + rlen, rlen);
+    *s = realloc(*s, nlen + 1);
+    if (!*s) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
+    (*s)[nlen] = '\0';
+}
+
+void strRev(char *s) {
+    char *i = s, *j = s + strlen(s) - 1;
+    while (j > i) {
+        *i = *i ^ *j;
+        *j = *i ^ *j;
+        *i = *i ^ *j;
+
+        i++; j--;
+    }
 }

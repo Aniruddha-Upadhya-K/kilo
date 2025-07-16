@@ -15,7 +15,9 @@
 #include <time.h>
 #include <unistd.h>
 #include "lib.h"
+#include "types.h"
 #include "editor.h"
+#include "stack.h"
 #include "history.h"
 
 /*** defines ***/
@@ -947,6 +949,12 @@ void editorProcessKeyPress(void) {
         case CTRL_KEY('w'):
             editorSaveAs();
             break;
+        case CTRL_KEY('u'):
+            H.undo();
+            break;
+        case CTRL_KEY('r'):
+            H.redo();
+            break;
         case ARROW_UP:
         case ARROW_DOWN:
         case ARROW_LEFT:
@@ -956,6 +964,7 @@ void editorProcessKeyPress(void) {
         case HOME_KEY:
         case END_KEY:
             // TODO: commit action
+            H.commit();
 
             editorMoveCursor(c);
             break;
@@ -963,26 +972,55 @@ void editorProcessKeyPress(void) {
             // TODO: commit action
             // set another action
             // commit action
+            H.record(INSERT_LINE_BEF, "\n", 1, E.cx, E.cy);
 
             editorRowInsertBefore(E.cy, E.cx);
             break;
-        case DELETE_KEY:
+        case DELETE_KEY: {
+            char charRemoved;
+            int length = -1; // Since it is Delete key
             // TODO: if action type change
             // commit action
+            if (E.cx == (int) E.row[E.cy].size && E.cy < E.numrows) {
+                charRemoved = '\n';
+                H.record(REMOVE_LINE_AFT, &charRemoved, length, E.cx, E.cy);
+            } else {
+                charRemoved = E.row[E.cy].chars[E.cx];
+                H.record(REMOVE_CHAR_AFT, &charRemoved, length, E.cx, E.cy);
+            }
 
             editorRemoveChars(E.cy, E.cx, -1);
             break;
-        case BACKSPACE: 
+        }
+        case BACKSPACE: {
+            char charRemoved[2] = "\0";
+            int length = 1;
             // TODO: if action type change
             // commit action
             // bit extra to do here
+            if (E.cx == 0) {
+                if (E.cy > 1) {
+                    charRemoved[0] = '\n';
+
+                    // action x-position is given as previous line's last char pos, 
+                    // as that is where new line character need to be inserted, 
+                    // not in 0th position of next line while undoing
+                    // otherwise that context will be lost!
+                    H.record(REMOVE_LINE_BEF, charRemoved, length, E.row[E.cy - 1].size, E.cy); 
+                }
+            } else {
+                charRemoved[0] = E.row[E.cy].chars[E.cx - 1];
+                H.record(REMOVE_CHAR_BEF, charRemoved, length, E.cx, E.cy);
+            }
 
             editorRemoveChars(E.cy, E.cx, 1);
             break;
+        }
         default:
             if (isprint(c) || c == '\t') {
                 // TODO: if action type change
                 // commit action
+                H.record(INSERT_CHAR_BEF, (char *) &c, 1, E.cx, E.cy);
 
                 editorRowInsertCharBefore(E.cy, E.cx, (char *) &c, 1);
             }

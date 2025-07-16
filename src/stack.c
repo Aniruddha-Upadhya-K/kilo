@@ -135,12 +135,14 @@ void actionSet(Action *act, const ssize_t length, const int ax, const int ay, co
 }
 
 void actionAppend(Action *act, const char *s, const ssize_t dlength, const int dax, const int day) {
-    act->data = (char *) realloc(act->data, act->length + dlength + 1);
-    if (!act->data) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
+    if (dlength > 0) {
+        act->data = (char *) realloc(act->data, act->length + dlength + 1);
+        if (!act->data) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
 
-    memcpy(act->data + act->length, s, dlength);
-    act->length += dlength;
-    act->data[act->length] = '\0';
+        memcpy(act->data + act->length, s, dlength);
+        act->length += dlength;
+        act->data[act->length] = '\0';
+    }
 
     act->ax += dax;
     act->ay += day;
@@ -151,8 +153,10 @@ void actionTypeConv(Action *act, ActionType newType) {
 }
 
 void actionCommit(Action *act, Stack *s) {
-    stackPush(s, act);
-    actionFlush(act);
+    if (!actionIsEmpty(act)) {
+        stackPush(s, act);
+        actionFlush(act);
+    }
 }
 
 Action* actionPop(Stack *s) {

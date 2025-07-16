@@ -6,6 +6,8 @@
 
 void die(char *s, ...);
 
-void stringSlice(char *s, size_t slen, size_t rlen, int from);
+void stringSlice(char **s, size_t slen, size_t rlen, int from);
+
+void strRev(char *s);
 
 #endif // !LIB_H

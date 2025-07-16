@@ -1,61 +1,75 @@
 #include <stddef.h>
+#include <string.h>
 #include <stdlib.h>
 #include <sys/types.h>
+#include "lib.h"
 #include "types.h"
 #include "editor.h"
 #include "stack.h"
 #include "history.h"
 
-static void historyPerform(const Action *act) {
+static void historyPerform(Action *act) {
     switch (act->type) {
         case INSERT_CHAR_BEF:
-            editorRemoveChars(act->ay, act->ax, act->length);
-            actionTypeConv(&H.action, REMOVE_CHAR_BEF);
+            editorRemoveChars(act->ay, act->ax + act->length, act->length);
+            actionTypeConv(act, REMOVE_CHAR_BEF);
+            actionAppend(act, "", 0, act->length, 0);
             break;
         case REMOVE_CHAR_BEF:
-            editorRowInsertCharBefore(act->ay, act->ax, act->data, act->length);
-            actionTypeConv(&H.action, INSERT_CHAR_BEF);
+            editorRowInsertCharBefore(act->ay, act->ax - act->length, act->data, act->length);
+            actionTypeConv(act, INSERT_CHAR_BEF);
+            actionAppend(act, "", 0, -act->length, 0);
             break;
         case INSERT_CHAR_AFT:
             editorRemoveChars(act->ay, act->ax, (-1 * act->length));
-            actionTypeConv(&H.action, REMOVE_CHAR_AFT);
+            actionTypeConv(act, REMOVE_CHAR_AFT);
             break;
         case REMOVE_CHAR_AFT:
             editorRowInsertCharAfter(act->ay, act->ax, act->data, act->length);
-            actionTypeConv(&H.action, INSERT_CHAR_AFT);
+            actionTypeConv(act, INSERT_CHAR_AFT);
             break;
         case INSERT_LINE_BEF:
-            editorRemoveChars(act->ay, act->ax, act->length);
-            actionTypeConv(&H.action, REMOVE_LINE_BEF);
+            editorRemoveChars(act->ay + 1, 0, 1);
+            actionTypeConv(act, REMOVE_LINE_BEF);
+            actionAppend(act, "", 0, 0, 1);
             break;
         case REMOVE_LINE_BEF:
-            editorRowInsertBefore(act->ay, act->ax);
-            actionTypeConv(&H.action, INSERT_LINE_BEF);
+            editorRowInsertBefore(act->ay - 1, act->ax);
+            actionTypeConv(act, INSERT_LINE_BEF);
+            actionAppend(act, "", 0, 0, -1);
             break;
         case INSERT_LINE_AFT:
-            editorRemoveChars(act->ay, act->ax, (-1 * act->length));
-            actionTypeConv(&H.action, REMOVE_LINE_AFT);
+            editorRemoveChars(act->ay, act->ax, -1);
+            actionTypeConv(act, REMOVE_LINE_AFT);
             break;
         case REMOVE_LINE_AFT:
             editorRowInsertAfter(act->ay, act->ax);
-            actionTypeConv(&H.action, INSERT_LINE_AFT);
+            actionTypeConv(act, INSERT_LINE_AFT);
             break;
     }
 }
 
-static void editorUndo(void) {
-    if (!actionIsEmpty(&H.action)) {
-        actionCommit(&H.action, H.undoStack);
+static void historyCommit(void) {
+    if (actionIsEmpty(&H.action)) return;
+    if (H.action.type == REMOVE_CHAR_BEF || H.action.type == INSERT_CHAR_AFT) {
+        strRev(H.action.data);
     }
 
-    const Action *uact = stackPeek(H.undoStack);
-    if (!uact) {
+    actionCommit(&H.action, H.undoStack);
+}
+
+static void editorUndo(void) {
+    if (!actionIsEmpty(&H.action)) {
+        historyCommit();
+    }
+
+    Action *act = actionPop(H.undoStack);
+    if (!act) {
         return;
     }
 
-    historyPerform(uact);
+    historyPerform(act);
 
-    Action *act = actionPop(H.undoStack);
     actionCommit(act, H.redoStack);
 }
 
@@ -72,13 +86,12 @@ static void editorRedo(void) {
         return;
     }
 
-    const Action *ract = stackPeek(H.redoStack);
-    if (!ract) {
+    Action *act = actionPop(H.redoStack);
+    if (!act) {
         return;
     }
 
-    historyPerform(ract);
-    Action *act = actionPop(H.redoStack);
+    historyPerform(act);
     actionCommit(act, H.undoStack);
 }
 
@@ -99,29 +112,31 @@ void historyFlush(void) {
  * ax => x-coordinate of the cursor at the time of action (0-indexed)
  * ay => y-coordinate of the cursor at the time of action (0-indexed)
  */
-static void historyRecord(ActionType type, char *data, ssize_t length, int ax, int ay) {
+static void historyRecord(const ActionType type, const char *data, const ssize_t length, const int ax, const int ay) {
 
     if (S.maxActionTime > 0) {
         if (actionIsEmpty(&H.action)) {
             H.time = time(NULL);
         } else if (difftime(time(NULL), H.time) > S.maxActionTime) {
-            actionCommit(&H.action, H.undoStack);
+            historyCommit();
         }
     }
+
+    historyFlushRedo();
 
     switch (type) {
         case INSERT_LINE_BEF:
         case INSERT_LINE_AFT:
-            if (!actionIsEmpty(&H.action)) actionCommit(&H.action, H.undoStack);
+            if (!actionIsEmpty(&H.action)) historyCommit();
             actionSet(&H.action, 1, ax, ay, type, "\n");
-            actionCommit(&H.action, H.undoStack);
+            historyCommit();
             break;
         
         case REMOVE_LINE_BEF:
         case REMOVE_LINE_AFT:
-            if (!actionIsEmpty(&H.action)) actionCommit(&H.action, H.undoStack);
+            if (!actionIsEmpty(&H.action)) historyCommit();
             actionSet(&H.action, 1, ax, ay, type, "\b");
-            actionCommit(&H.action, H.undoStack);
+            historyCommit();
             break;
 
         case INSERT_CHAR_AFT:
@@ -130,7 +145,7 @@ static void historyRecord(ActionType type, char *data, ssize_t length, int ax, i
         case INSERT_CHAR_BEF:
         case REMOVE_CHAR_BEF:
             if (!actionIsEmpty(&H.action) && H.action.type != type) {
-                actionCommit(&H.action, H.undoStack);
+                historyCommit();
             }
             if (actionIsEmpty(&H.action)) {
                 actionSet(&H.action, length, ax, ay, type, data);
@@ -141,7 +156,7 @@ static void historyRecord(ActionType type, char *data, ssize_t length, int ax, i
 
         case REMOVE_CHAR_AFT:
             if (!actionIsEmpty(&H.action) && H.action.type != type) {
-                actionCommit(&H.action, H.undoStack);
+                historyCommit();
             }
             if (actionIsEmpty(&H.action)) {
                 actionSet(&H.action, -length, ax, ay, type, data);
@@ -160,4 +175,5 @@ void historyInit(void) {
     H.undo = editorUndo;
     H.redo = editorRedo;
     H.record = historyRecord;
+    H.commit = historyCommit;
 }
