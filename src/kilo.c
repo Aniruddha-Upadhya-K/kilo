@@ -951,9 +951,11 @@ void editorProcessKeyPress(void) {
             break;
         case CTRL_KEY('u'):
             H.undo();
+            E.rx = editorRowCxToRx(&E.row[E.cy], E.cx);
             break;
         case CTRL_KEY('r'):
             H.redo();
+            E.rx = editorRowCxToRx(&E.row[E.cy], E.cx);
             break;
         case ARROW_UP:
         case ARROW_DOWN:

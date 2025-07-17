@@ -12,38 +12,54 @@ static void historyPerform(Action *act) {
     switch (act->type) {
         case INSERT_CHAR_BEF:
             editorRemoveChars(act->ay, act->ax + act->length, act->length);
+            E.cx = act->ax;
+            E.cy = act->ay;
             actionTypeConv(act, REMOVE_CHAR_BEF);
             actionAppend(act, "", 0, act->length, 0);
             break;
         case REMOVE_CHAR_BEF:
             editorRowInsertCharBefore(act->ay, act->ax - act->length, act->data, act->length);
+            E.cx = act->ax;
+            E.cy = act->ay;
             actionTypeConv(act, INSERT_CHAR_BEF);
             actionAppend(act, "", 0, -act->length, 0);
             break;
         case INSERT_CHAR_AFT:
             editorRemoveChars(act->ay, act->ax, (-1 * act->length));
+            E.cx = act->ax;
+            E.cy = act->ay;
             actionTypeConv(act, REMOVE_CHAR_AFT);
             break;
         case REMOVE_CHAR_AFT:
             editorRowInsertCharAfter(act->ay, act->ax, act->data, act->length);
+            E.cx = act->ax;
+            E.cy = act->ay;
             actionTypeConv(act, INSERT_CHAR_AFT);
             break;
         case INSERT_LINE_BEF:
             editorRemoveChars(act->ay + 1, 0, 1);
+            E.cx = act->ax;
+            E.cy = act->ay;
             actionTypeConv(act, REMOVE_LINE_BEF);
             actionAppend(act, "", 0, 0, 1);
             break;
         case REMOVE_LINE_BEF:
             editorRowInsertBefore(act->ay - 1, act->ax);
+            E.cx = 0;
+            E.cy = act->ay;
             actionTypeConv(act, INSERT_LINE_BEF);
             actionAppend(act, "", 0, 0, -1);
             break;
         case INSERT_LINE_AFT:
             editorRemoveChars(act->ay, act->ax, -1);
+            E.cx = act->ax;
+            E.cy = act->ay;
             actionTypeConv(act, REMOVE_LINE_AFT);
             break;
         case REMOVE_LINE_AFT:
             editorRowInsertAfter(act->ay, act->ax);
+            E.cx = act->ax;
+            E.cy = act->ay;
             actionTypeConv(act, INSERT_LINE_AFT);
             break;
     }
