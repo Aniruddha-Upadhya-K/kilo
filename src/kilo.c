@@ -17,7 +17,6 @@
 #include "lib.h"
 #include "types.h"
 #include "editor.h"
-#include "stack.h"
 #include "history.h"
 
 /*** defines ***/
@@ -1073,7 +1072,7 @@ int main(int argc, char *argv[]) {
         editorOpenEmpty();
     }
 
-    editorSetMessage("Help:\tCtrl+Q=Quit\tCtrl+O=Save\tCtrl+W=Save As");
+    editorSetMessage("Help: Ctrl+Q=Quit    Ctrl+O=Save    Ctrl+W=Save As    Ctrl+U=Undo    Ctrl+R=Redo");
 
     while (1) {
         editorRefreshScreen();
