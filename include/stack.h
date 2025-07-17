@@ -8,6 +8,8 @@ Stack* stackInit(void);
 
 const Action* stackPeek(const Stack *s);
 
+void stackClear(Stack *s);
+
 void stackDelete(Stack *s);
 
 void actionFlush(Action *act);

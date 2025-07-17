@@ -49,6 +49,8 @@ void disableRawMode(void) {
 
     if (E.message.length) free(E.message.data);
 
+    H.delete();
+
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &E.orig_termios) == -1)
         die("In function: %s\r\nAt line: %d\r\ntcsetattr", __func__, __LINE__);
 }

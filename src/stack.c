@@ -59,8 +59,15 @@ static void deleteStackRecursive(Node *node) {
     nodeDelete(node);
 }
 
+void stackClear(Stack *s) {
+    deleteStackRecursive(s->bottom);
+    s->top = s->bottom = NULL;
+    s->size = 0;
+}
+
 void stackDelete(Stack *s) {
-    deleteStackRecursive(s->top);
+    stackClear(s);
+    free(s);
 }
 
 static void stackPush(Stack *s, const Action *act) {
@@ -118,7 +125,7 @@ void actionFlush(Action *act) {
 }
 
 void actionDelete(Action *act) {
-    if (act->length ) {
+    if (act->length) {
         actionFlush(act);
     }
     free(act);

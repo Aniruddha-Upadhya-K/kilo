@@ -85,15 +85,12 @@ static void editorUndo(void) {
     }
 
     historyPerform(act);
-
     actionCommit(act, H.redoStack);
+    actionDelete(act);
 }
 
 void historyFlushRedo(void) {
-    while(stackPeek(H.redoStack)) {
-        Action *act = actionPop(H.redoStack);
-        actionDelete(act);
-    }
+    stackClear(H.redoStack);
 }
 
 static void editorRedo(void) {
@@ -109,11 +106,13 @@ static void editorRedo(void) {
 
     historyPerform(act);
     actionCommit(act, H.undoStack);
+    actionDelete(act);
 }
 
-void historyFlush(void) {
+static void historyDelete(void) {
     stackDelete(H.undoStack);
     stackDelete(H.redoStack);
+    if (!actionIsEmpty(&H.action)) actionFlush(&H.action);
 }
 
 /*
@@ -135,6 +134,8 @@ static void historyRecord(const ActionType type, const char *data, const ssize_t
             H.time = time(NULL);
         } else if (difftime(time(NULL), H.time) > S.maxActionTime) {
             historyCommit();
+        } else {
+            H.time = time(NULL);
         }
     }
 
@@ -192,4 +193,5 @@ void historyInit(void) {
     H.redo = editorRedo;
     H.record = historyRecord;
     H.commit = historyCommit;
+    H.delete = historyDelete;
 }
