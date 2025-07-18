@@ -1055,7 +1055,7 @@ void initEditor(void) {
     S.maxFileNameSize = 40;
     S.maxMsgSize = 80;
     S.maxHistory = 10;
-    S.maxActionTime = 10;
+    S.maxActionTime = 5;
 
     /* Editor History */
     historyInit();

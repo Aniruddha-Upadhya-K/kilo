@@ -134,6 +134,7 @@ static void historyRecord(const ActionType type, const char *data, const ssize_t
             H.time = time(NULL);
         } else if (difftime(time(NULL), H.time) > S.maxActionTime) {
             historyCommit();
+            H.time = time(NULL);
         } else {
             H.time = time(NULL);
         }

@@ -28,8 +28,10 @@ static Node* nodeCreate(const Action *act) {
 }
 
 static void nodeDelete(Node *node) {
-    free(node->action.data);
-    free(node);
+    if (node) {
+        if (node->action.data) free(node->action.data);
+        free(node);
+    }
 }
 
 /*** stack type and methods ***/
@@ -51,22 +53,28 @@ const Action* stackPeek(const Stack* s) {
     return s->size ? &s->top->action : NULL;
 }
 
-static void deleteStackRecursive(Node *node) {
-    if (!node) {
-        return;
-    }
-    deleteStackRecursive(node->next);
-    nodeDelete(node);
-}
+// static void deleteStackRecursive(Node *node) {
+//     if (!node) {
+//         return;
+//     }
+//     deleteStackRecursive(node->next);
+//     nodeDelete(node);
+// }
 
 void stackClear(Stack *s) {
-    deleteStackRecursive(s->bottom);
+    // deleteStackRecursive(s->bottom);
+    while (s->top) {
+        Node *node = s->top;
+        s->top = node->prev;
+        nodeDelete(node);
+    }
+
     s->top = s->bottom = NULL;
     s->size = 0;
 }
 
 void stackDelete(Stack *s) {
-    stackClear(s);
+    if (s->size) stackClear(s);
     free(s);
 }
 
@@ -91,7 +99,7 @@ static void stackPush(Stack *s, const Action *act) {
     s->size++;
 }
 
-// CAUTION: The pointer to Action that is returned should be freed by the caller
+// CAUTION: The pointer to Action that is returned should be freed by the caller with actionDelete(Action *act)
 static Action* stackPop(Stack *s) {
     if (!s->size) {
         return NULL;
