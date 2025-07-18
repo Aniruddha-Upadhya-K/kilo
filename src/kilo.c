@@ -14,6 +14,10 @@
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
+#include "lib.h"
+#include "types.h"
+#include "editor.h"
+#include "history.h"
 
 /*** defines ***/
 #define CTRL_KEY(k) ((k) & 0x1f)
@@ -34,68 +38,8 @@ enum editorKey {
     EOL
 };
 
-/*** data ***/
-typedef struct erow {
-    size_t size;
-    char *chars;
-    size_t rsize;
-    char *render;
-} erow;
-
-struct editorSetting {
-    int scrolloff;
-    int tabwidth;
-    int maxFileNameSize;
-    int maxMsgSize;
-};
-
-struct editorSetting S;
-
-struct editorMsg {
-    char *data;
-    int length;
-    time_t time;
-    int isFocus;
-
-    int cx;
-    int cy;
-};
-
-struct editorConfig {
-    int cx, cy; /* 0 indexed */
-    int rx;
-    int screenrows;
-    int screencols;
-    erow *row;
-    int rowoff; /* Has the value of first line number in the current view area (0
-                                   indexed) */
-    int coloff; /* Has the value of first column number in the current view area
-                                   (0 indexed) */
-    int numrows;
-    int max_rx;
-    char *filename;
-    struct editorMsg message;
-    struct termios orig_termios;
-};
-
-struct editorConfig E;
-
 /*** terminal ***/
-void die(char *s, ...) {
-    va_list ap;
-    char err[100];
-    va_start(ap, s);
-    vsnprintf(err, sizeof(err), s, ap);
-    va_end(ap);
-
-    write(STDOUT_FILENO, "\x1b[2J", 4);
-    write(STDOUT_FILENO, "\x1b[H", 3);
-
-    perror(err);
-    exit(1);
-}
-
-void disableRawMode() {
+void disableRawMode(void) {
     for (int i=0; i < E.numrows; i++) {
         free(E.row[i].chars);
         free(E.row[i].render);
@@ -105,11 +49,13 @@ void disableRawMode() {
 
     if (E.message.length) free(E.message.data);
 
+    H.delete();
+
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &E.orig_termios) == -1)
         die("In function: %s\r\nAt line: %d\r\ntcsetattr", __func__, __LINE__);
 }
 
-void enableRawMode() {
+void enableRawMode(void) {
     if (tcgetattr(STDIN_FILENO, &E.orig_termios) == -1)
         die("In function: %s\r\nAt line: %d\r\ntcsetattr", __func__, __LINE__);
     atexit(disableRawMode);
@@ -126,7 +72,7 @@ void enableRawMode() {
         die("In function: %s\r\nAt line: %d\r\ntcsetattr", __func__, __LINE__);
 }
 
-int editorReadKey() {
+int editorReadKey(void) {
     char c;
     int nread;
     while ((nread = read(STDIN_FILENO, &c, 1)) != 1) {
@@ -264,14 +210,13 @@ int editorRowRxToCx(const erow *row, int rx) {
 }
 
 void editorUpdateRow(erow *row) {
-    free(row->render);
-
     int tabcount = 0;
     for (size_t i = 0; i < row->size; i++)
         if (row->chars[i] == '\t')
             tabcount++;
 
-    row->render = malloc(row->size + tabcount * (S.tabwidth - 1) + 1);
+    row->render = realloc(row->render, row->size + tabcount * (S.tabwidth - 1) + 1);
+    if (!row->render) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
 
     size_t idx = 0;
     for (size_t j = 0; j < row->size; j++) {
@@ -305,76 +250,106 @@ void editorRowAppend(const char *s, size_t len) {
     editorUpdateRow(&E.row[at]);
 }
 
-void editorRowInsertChar(erow *row, int cat, int rat, int c) {
+/*
+ * Description:
+ * Inserts characters at the position of the cursor but does not modify the cursor position
+ * Simulates opposite of DELETE key function
+ */
+void editorRowInsertCharAfter(int curline, int cat, const char *s, const int len) {
+    erow *row = &E.row[curline];
     if (cat < 0 || cat > (int) row->size) cat = row->size;
-    if (rat < 0 || rat > (int) row->rsize) rat = row->rsize;
 
-    int clen = 1, rlen = 1;
-    if (c == '\t') 
-        rlen = S.tabwidth - (rat % S.tabwidth);
+    row->chars = (char *) realloc(row->chars, row->size + len + 1);
+    if (!row->chars) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
+    memmove(row->chars + cat + len, row->chars + cat, row->size - cat + 1);
+    memcpy(row->chars + cat, s, len);
 
-    row->chars = (char *) realloc(row->chars, row->size + clen + 1);
-    if (!E.row) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
-    memmove(row->chars + cat + clen, row->chars + cat, row->size - cat + 1);
-    row->chars[cat] = c;
-
-    row->size += clen;
+    row->size += len;
 
     editorUpdateRow(row);
+}
 
-    E.cx += clen;
-    E.rx += rlen;
+/*
+ * Description:
+ * Inserts characters at the position of the cursor and modifies the cursor position
+ * Default behaviour
+ * Exactly opposite of BACKSPACE key function
+ */
+void editorRowInsertCharBefore(int curline, int cat, const char *s, const int len) {
+    editorRowInsertCharAfter(curline, cat, s, len);
+
+    E.cx += len;
+    E.rx = editorRowCxToRx(&E.row[curline], E.cx);
     if (E.rx > E.max_rx) E.max_rx = E.rx;
 }
 
-void editorRowInsert(int curline, int cat, int rat) {
+/*
+ * Description:
+ * Inserts line at the cursor position but cursor position remains unchanged
+ * Simulates opposite of DELETE key function at the end of a line
+ */
+void editorRowInsertAfter(int curline, int cat) {
     if (curline < 0 || curline >= E.numrows) curline = E.numrows - 1;
 
     E.row = (erow *) realloc(E.row, sizeof(erow) * (E.numrows + 1));
     if (!E.row) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
 
     erow *currow = E.row + curline;
-    erow *nextrow = E.row + curline + 1;
 
     if (cat < 0 || cat > (int) currow->size) cat = currow->size;
-    if (rat < 0 || rat > (int) currow->rsize) rat = currow->rsize;
-
-    int size = currow->size - cat;
 
     if (curline < E.numrows - 1)
-        memmove(nextrow + 1, nextrow, sizeof(erow) * (E.numrows - curline - 1));
+        memmove(currow + 2, currow + 1, sizeof(erow) * (E.numrows - curline - 1));
 
-    nextrow->chars = (char *) malloc(size + 1);
-    if (!nextrow->chars) die("In function: %s\r\nAt line: %d\r\nmalloc", __func__, __LINE__);
-    nextrow->render = (char *) malloc(1);
+    int size = currow->size - cat;
+    erow nextrow = {.size = size};
 
-    memcpy(nextrow->chars, &currow->chars[cat], currow->size + 1 - cat);
+    nextrow.chars = (char *) malloc(size + 1);
+    if (!nextrow.chars) die("In function: %s\r\nAt line: %d\r\nmalloc", __func__, __LINE__);
+
+    memcpy(nextrow.chars, &currow->chars[cat], currow->size + 1 - cat);
     currow->chars[cat] = '\0';
 
     currow->chars = (char *) realloc(currow->chars, cat + 1);
     if (!currow->chars) die("In function: %s\r\nAt line: %d\r\nrealloc", __func__, __LINE__);
 
+    currow->size = cat;
     E.numrows++;
+    E.row[curline + 1] = nextrow;
+    editorUpdateRow(&E.row[curline]);
+    editorUpdateRow(&E.row[curline + 1]);
+}
+
+/*
+ * Description:
+ * Inserts line at the cursor position and puts cursor to new line
+ * Default behaviour
+ * Simulates opposite of BACKSPACE key function at the end of a line
+ */
+void editorRowInsertBefore(int curline, int cat) {
+    editorRowInsertAfter(curline, cat);
+
     E.cy++;
     E.max_rx = 0;
     E.cx = 0;
     E.rx = 0;
-
-    currow->size = cat;
-    currow->rsize = rat;
-    nextrow->size = size;
-    editorUpdateRow(nextrow);
 }
 
 /*
+* Description: 
+* +ve clen => BACKSPACE functionality
+* -ve clen => DELETE functionality
+*
+* BACKSPACE functionality:
 * from one character before the position 'cat' in current row to a total of 'clen' characters will be removed from 'chars' array(s)
-* from one character before the position 'rat' in current row to a total of 'rlen' characters will be removed from 'render' array(s)
+*
+* DELETE functionality:
+* characters after current character 'cat', in current row (or after) will be removed to a total of absolute value of 'clen' characters from 'chars' array(s)
 */
-void editorRemoveChars(int cat, int rat, int curline, int clen) {
+void editorRemoveChars(int curline, int cat, int clen) {
     if (curline > E.numrows - 1 && curline < 0) curline = E.numrows - 1;
     erow *currow = &E.row[curline];
     if (cat > (int) currow->size && cat < 0) cat = currow->size;
-    if (rat > (int) currow->rsize && rat < 0) rat = currow->rsize;
 
     if (clen > cat && curline == 0) {
         clen = cat;
@@ -420,7 +395,7 @@ void editorRemoveChars(int cat, int rat, int curline, int clen) {
         E.rx = prevRowRsize;
         E.max_rx = E.rx;
 
-        if (clen > 0) editorRemoveChars(E.cx, E.rx, E.cy, clen);
+        if (clen > 0) editorRemoveChars(E.cy, E.cx, clen);
     } else if (clen < 0 && abs(clen) > (int) currow->size - cat) {
         clen += currow->size - cat + 1;
 
@@ -448,7 +423,7 @@ void editorRemoveChars(int cat, int rat, int curline, int clen) {
         E.numrows--;
         E.row = (erow*) realloc(E.row, sizeof(erow) * E.numrows);
 
-        if (clen < 0) editorRemoveChars(cat, rat, curline, clen);
+        if (clen < 0) editorRemoveChars(curline, cat, clen);
     } else {
         char *src = NULL, *dest = NULL;
         int movesize = 0;
@@ -519,7 +494,7 @@ void welcome(struct abuf *ab) {
     abAppend(ab, welcome, welcomelen);
 }
 
-void editorScroll() {
+void editorScroll(void) {
     if (E.numrows < E.screenrows);
     else if (E.cy < E.rowoff + S.scrolloff) {
         if (E.cy > S.scrolloff)
@@ -603,7 +578,7 @@ void editorDrawStatusBar(struct abuf *ab) {
     abAppend(ab, "\r\n", 2);
 }
 
-void editorClearMessage () {
+void editorClearMessage (void) {
     if (E.message.length) free(E.message.data);
     E.message.length = 0;
 }
@@ -656,7 +631,7 @@ void editorDrawMessageBar(struct abuf *ab) {
         editorClearMessage();
 }
 
-void editorRefreshScreen() {
+void editorRefreshScreen(void) {
     struct abuf ab = {NULL, 0};
 
     abAppend(&ab, "\x1b[?25l", 6); /* Hide cursor */
@@ -685,7 +660,7 @@ void editorRefreshScreen() {
 }
 
 /*** file i/o ***/
-void editorOpenEmpty() {
+void editorOpenEmpty(void) {
     int linelen = 0;
     char line = '\0';
     editorRowAppend(&line, linelen);
@@ -699,7 +674,7 @@ void editorOpen(const char *filename) {
 
     FILE *fp = fopen(E.filename, "r");
     if (!fp)
-        die("In function: %s\r\nAt line: %d\r\nNo file exists with the name %s", __func__, __LINE__, E.filename);
+        fp = fopen(E.filename, "w");
 
     ssize_t linelen = 0;
     size_t linecap = 0;
@@ -767,7 +742,7 @@ void editorSave(const char *filename) {
     editorSetMessage("Total of %ld bytes have been written to disk", writeSize - 1);
 }
 
-void editorSaveAs() {
+void editorSaveAs(void) {
     E.message.isFocus = 1;
     int filenamesize = 0;
     char *filename = NULL;
@@ -876,7 +851,6 @@ void editorMoveCursor(int c) {
         case ARROW_LEFT: {
             const erow *curRow = &E.row[E.cy];
             const char *chars = curRow->chars;
-            const char *render = curRow->render;
 
             if (E.cx == 0 && E.cy == 0)
                 break;
@@ -903,6 +877,7 @@ void editorMoveCursor(int c) {
                     int extraSpaces = spaceCount % S.tabwidth;
                     deltaRx = S.tabwidth - extraSpaces;
                 } else {
+                    const char *render = curRow->render;
                     int rx = cx;
                     while (render[E.rx - rx] != chars[E.cx - cx]) {
                         rx++;
@@ -956,8 +931,12 @@ void editorMoveCursor(int c) {
     }
 }
 
-void editorProcessKeyPress() {
+void editorProcessKeyPress(void) {
     int c = editorReadKey();
+
+    // TODO: undo time check
+    // if time > threshold
+    // commit action
 
     switch (c) {
         case CTRL_KEY('q'):
@@ -971,6 +950,14 @@ void editorProcessKeyPress() {
         case CTRL_KEY('w'):
             editorSaveAs();
             break;
+        case CTRL_KEY('u'):
+            H.undo();
+            E.rx = editorRowCxToRx(&E.row[E.cy], E.cx);
+            break;
+        case CTRL_KEY('r'):
+            H.redo();
+            E.rx = editorRowCxToRx(&E.row[E.cy], E.cx);
+            break;
         case ARROW_UP:
         case ARROW_DOWN:
         case ARROW_LEFT:
@@ -979,25 +966,76 @@ void editorProcessKeyPress() {
         case PAGE_DOWN:
         case HOME_KEY:
         case END_KEY:
+            // TODO: commit action
+            H.commit();
+
             editorMoveCursor(c);
             break;
         case '\r':
-            editorRowInsert(E.cy, E.cx, E.rx);
+            // TODO: commit action
+            // set another action
+            // commit action
+            H.record(INSERT_LINE_BEF, "\n", 1, E.cx, E.cy);
+
+            editorRowInsertBefore(E.cy, E.cx);
             break;
-        case DELETE_KEY:
-            editorRemoveChars(E.cx, E.rx, E.cy, -1);
+        case DELETE_KEY: {
+            char charRemoved;
+            int length = -1; // Since it is Delete key
+            // TODO: if action type change
+            // commit action
+            if (E.cx == (int) E.row[E.cy].size && E.cy < E.numrows) {
+                charRemoved = '\n';
+                H.record(REMOVE_LINE_AFT, &charRemoved, length, E.cx, E.cy);
+            } else {
+                charRemoved = E.row[E.cy].chars[E.cx];
+                H.record(REMOVE_CHAR_AFT, &charRemoved, length, E.cx, E.cy);
+            }
+
+            editorRemoveChars(E.cy, E.cx, -1);
             break;
-        case BACKSPACE: 
-            editorRemoveChars(E.cx, E.rx, E.cy, 1);
+        }
+        case BACKSPACE: {
+            char charRemoved[2] = "\0";
+            int length = 1;
+            // TODO: if action type change
+            // commit action
+            // bit extra to do here
+            if (E.cx == 0) {
+                if (E.cy > 1) {
+                    charRemoved[0] = '\n';
+
+                    // action x-position is given as previous line's last char pos, 
+                    // as that is where new line character need to be inserted, 
+                    // not in 0th position of next line while undoing
+                    // otherwise that context will be lost!
+                    H.record(REMOVE_LINE_BEF, charRemoved, length, E.row[E.cy - 1].size, E.cy); 
+                }
+            } else {
+                charRemoved[0] = E.row[E.cy].chars[E.cx - 1];
+                H.record(REMOVE_CHAR_BEF, charRemoved, length, E.cx, E.cy);
+            }
+
+            editorRemoveChars(E.cy, E.cx, 1);
             break;
+        }
         default:
-            if (isprint(c) || c == '\t')
-                editorRowInsertChar(&E.row[E.cy], E.cx, E.rx, c);
+            if (isprint(c) || c == '\t') {
+                // TODO: if action type change
+                // commit action
+                H.record(INSERT_CHAR_BEF, (char *) &c, 1, E.cx, E.cy);
+
+                editorRowInsertCharBefore(E.cy, E.cx, (char *) &c, 1);
+            }
     }
 }
 
+struct editorSetting S;
+struct editorConfig E;
+struct History H;
+
 /*** init ***/
-void initEditor() {
+void initEditor(void) {
     /* Editor Configs */
     E.cx = 0;
     E.cy = 0;
@@ -1016,6 +1054,11 @@ void initEditor() {
     S.tabwidth = 4;
     S.maxFileNameSize = 40;
     S.maxMsgSize = 80;
+    S.maxHistory = 10;
+    S.maxActionTime = 5;
+
+    /* Editor History */
+    historyInit();
 
     enableRawMode();
     if (getWindowSize(&E.screenrows, &E.screencols) == -1)
@@ -1031,7 +1074,7 @@ int main(int argc, char *argv[]) {
         editorOpenEmpty();
     }
 
-    editorSetMessage("Help:\tCtrl Q=Quit\tCtrl O=Save");
+    editorSetMessage("Help: Ctrl+Q=Quit    Ctrl+O=Save    Ctrl+W=Save As    Ctrl+U=Undo    Ctrl+R=Redo");
 
     while (1) {
         editorRefreshScreen();
