@@ -9,3 +9,4 @@ tests/
 .cache/*
 .cache/
 vgcore.*
+compile_commands.json
