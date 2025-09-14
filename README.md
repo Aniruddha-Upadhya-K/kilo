@@ -2,7 +2,7 @@
 
 This is Kilo, a memory safe (atleast as far as I tested) nano like terminal based text editor
 
-![kilo video](assets/kilo.webm)
+![kilo video](assets/kilo.mp4)
 
 ## Features
 - Opening/editing/creating files (ofc)
